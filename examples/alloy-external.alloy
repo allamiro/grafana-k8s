@@ -1,0 +1,137 @@
+// Alloy config for a host OUTSIDE Kubernetes (VM, bare metal, laptop).
+// Install Alloy on the host (https://grafana.com/docs/alloy/latest/set-up/install/)
+// and run it with this file:
+//
+//   alloy run /etc/alloy/alloy-external.alloy
+//
+// It collects the host's logs, metrics, and app traces and ships them to the
+// SAME backends running in the grafana-dev namespace.
+//
+// ENDPOINTS -- replace the placeholder with how you expose the cluster:
+//   * production: your real ingest hostname/IP, e.g. ingest.example.com
+//   * local simulation (Docker Desktop): port-forward the backends, then
+//     use localhost:
+//       kubectl -n grafana-dev port-forward svc/loki 3100:3100 &
+//       kubectl -n grafana-dev port-forward svc/prometheus 9090:9090 &
+//       kubectl -n grafana-dev port-forward svc/tempo 4317:4317 &
+//       kubectl -n grafana-dev port-forward svc/pyroscope 4040:4040 &
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+/////////////////////////////////////////////////////////////////////////
+// LOGS: host log files -> Loki
+/////////////////////////////////////////////////////////////////////////
+
+local.file_match "system_logs" {
+  path_targets = [
+    // Adjust to the app's log paths on this host:
+    {"__path__" = "/var/log/*.log", "job" = "system"},
+    {"__path__" = "/var/log/myapp/*.log", "job" = "myapp"},
+  ]
+}
+
+loki.source.file "system_logs" {
+  targets    = local.file_match.system_logs.targets
+  forward_to = [loki.process.external.receiver]
+}
+
+loki.process "external" {
+  stage.static_labels {
+    values = {
+      // Identify this host in queries: {host="my-vm-01"}
+      host = "my-vm-01",          // CHANGE: this host's name
+      env  = "external",
+    }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    // CHANGE: e.g. http://localhost:3100/... (port-forward) or
+    // http://ingest.example.com:3100/... (production)
+    url = "http://grafana.example.com:3100/loki/api/v1/push"
+  }
+}
+
+/////////////////////////////////////////////////////////////////////////
+// METRICS: host CPU/mem/disk/network (node-exporter equivalent) plus
+// any local app's /metrics endpoint -> Prometheus
+/////////////////////////////////////////////////////////////////////////
+
+prometheus.exporter.unix "host" { }
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.scrape "local_apps" {
+  targets = [
+    // CHANGE: your app's metrics endpoints on this host:
+    {"__address__" = "localhost:8080", "job" = "myapp"},
+  ]
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    // CHANGE: e.g. http://localhost:9090/api/v1/write (port-forward)
+    url = "http://grafana.example.com:9090/api/v1/write"
+  }
+  external_labels = {
+    host = "my-vm-01",            // CHANGE: this host's name
+    env  = "external",
+  }
+}
+
+/////////////////////////////////////////////////////////////////////////
+// TRACES: local apps send OTLP to this Alloy (localhost:4317/4318),
+// Alloy forwards to Tempo.
+/////////////////////////////////////////////////////////////////////////
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    // CHANGE: e.g. localhost:4317 (port-forward) or your Tempo ingest
+    endpoint = "grafana.example.com:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+/////////////////////////////////////////////////////////////////////////
+// PROFILES: this host's Go apps exposing /debug/pprof -> Pyroscope
+/////////////////////////////////////////////////////////////////////////
+
+pyroscope.write "default" {
+  endpoint {
+    // CHANGE: e.g. http://localhost:4040 (port-forward)
+    url = "http://grafana.example.com:4040"
+  }
+}
+
+pyroscope.scrape "local_apps" {
+  targets = [
+    // CHANGE: your app's pprof endpoint:
+    {"__address__" = "localhost:8080", "service_name" = "myapp"},
+  ]
+  forward_to = [pyroscope.write.default.receiver]
+}

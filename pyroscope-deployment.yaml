@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyroscope
+  namespace: grafana-dev
+  labels:
+    app: pyroscope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pyroscope
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: pyroscope
+    spec:
+      securityContext:
+        # pyroscope image runs as uid/gid 10001
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: pyroscope
+          image: grafana/pyroscope:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/pyroscope/pyroscope.yaml
+          ports:
+            - name: http
+              containerPort: 4040
+            - name: grpc
+              containerPort: 4041
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: pyroscope-data
+              mountPath: /data
+            - name: pyroscope-config
+              mountPath: /etc/pyroscope
+      volumes:
+        - name: pyroscope-data
+          persistentVolumeClaim:
+            claimName: pyroscope-pvc-data
+        - name: pyroscope-config
+          configMap:
+            name: pyroscope-config

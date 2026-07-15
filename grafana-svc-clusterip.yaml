@@ -1,0 +1,24 @@
+# Grafana Service -- ClusterIP variant (no load balancer).
+# Use this when you access Grafana with kubectl port-forward:
+#
+#   kubectl -n grafana-dev port-forward svc/grafana 3000:3000
+#   open https://localhost:3000   (self-signed cert warning is expected)
+#
+# NOTE: apply EITHER this file OR grafana-svc-loadbalancer.yaml, not both --
+# they define the same Service name with a different type.
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: grafana-dev
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+    - name: https
+      protocol: TCP
+      port: 3000
+      targetPort: https   # container port 3000 (Grafana serves TLS)

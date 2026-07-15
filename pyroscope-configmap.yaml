@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pyroscope-config
+  namespace: grafana-dev
+  labels:
+    app: pyroscope
+data:
+  # Full Pyroscope config -- single-binary mode with filesystem storage on
+  # the PVC mounted at /data. Suitable for Docker Desktop / dev; for
+  # production scale, switch storage.backend to s3/gcs/azure.
+  pyroscope.yaml: |
+    target: all
+
+    server:
+      http_listen_port: 4040
+      grpc_listen_port: 4041
+      log_level: info
+
+    pyroscopedb:
+      data_path: /data
+
+    storage:
+      backend: filesystem
+      filesystem:
+        dir: /data/shared
+
+    analytics:
+      reporting_enabled: false

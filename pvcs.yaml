@@ -1,0 +1,102 @@
+# All PersistentVolumeClaims for the stack, in one file.
+#
+# StorageClass:
+#   - Docker Desktop built-in Kubernetes ships the `hostpath` StorageClass
+#     (it is also the default). That is what is active below.
+#   - On Tanzu, comment out `hostpath` and uncomment the Tanzu class instead.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc-storage
+  namespace: grafana-dev
+  labels:
+    app: grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc-plugins
+  namespace: grafana-dev
+  labels:
+    app: grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc-data
+  namespace: grafana-dev
+  labels:
+    app: loki
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pyroscope-pvc-data
+  namespace: grafana-dev
+  labels:
+    app: pyroscope
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-pvc-data
+  namespace: grafana-dev
+  labels:
+    app: tempo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc-data
+  namespace: grafana-dev
+  labels:
+    app: prometheus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 20Gi

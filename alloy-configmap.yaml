@@ -1,0 +1,223 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: grafana-dev
+  labels:
+    app: alloy
+data:
+  # Full Alloy config -- the single collector for the whole stack:
+  #
+  #   LOGS      every pod in every namespace -> Loki
+  #   METRICS   cadvisor (per-container CPU/mem for all namespaces) and any
+  #             pod annotated prometheus.io/scrape=true -> Prometheus
+  #   TRACES    OTLP receiver (grpc 4317 / http 4318) -> Tempo
+  #   PROFILES  pprof scrape (Alloy itself as the example) -> Pyroscope
+  #
+  # Apps OUTSIDE Kubernetes: run Alloy on that host with
+  # examples/alloy-external.alloy pointed at these same backends.
+  config.alloy: |
+    logging {
+      level  = "info"
+      format = "logfmt"
+    }
+
+    ///////////////////////////////////////////////////////////////////////
+    // LOGS: all pods, all namespaces -> Loki
+    ///////////////////////////////////////////////////////////////////////
+
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    discovery.relabel "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        target_label  = "app"
+      }
+    }
+
+    loki.source.kubernetes "pods" {
+      targets    = discovery.relabel.pod_logs.output
+      forward_to = [loki.process.pods.receiver]
+    }
+
+    loki.process "pods" {
+      stage.static_labels {
+        values = {
+          // CHANGE for production, e.g. cluster = "prod-tanzu-01"
+          cluster = "docker-desktop",
+        }
+      }
+      forward_to = [loki.write.default.receiver]
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://loki.grafana-dev.svc.cluster.local:3100/loki/api/v1/push"
+      }
+    }
+
+    ///////////////////////////////////////////////////////////////////////
+    // METRICS (1/2): cadvisor -- container CPU/memory/network for every
+    // pod in every namespace, scraped from the kubelet via the API server.
+    ///////////////////////////////////////////////////////////////////////
+
+    discovery.kubernetes "nodes" {
+      role = "node"
+    }
+
+    discovery.relabel "cadvisor" {
+      targets = discovery.kubernetes.nodes.targets
+
+      rule {
+        target_label = "__address__"
+        replacement  = "kubernetes.default.svc.cluster.local:443"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = "(.+)"
+        target_label  = "__metrics_path__"
+        replacement   = "/api/v1/nodes/${1}/proxy/metrics/cadvisor"
+      }
+    }
+
+    prometheus.scrape "cadvisor" {
+      targets           = discovery.relabel.cadvisor.output
+      scheme            = "https"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      scrape_interval   = "30s"
+
+      tls_config {
+        ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+      }
+
+      forward_to = [prometheus.remote_write.default.receiver]
+    }
+
+    ///////////////////////////////////////////////////////////////////////
+    // METRICS (2/2): application metrics -- any pod in ANY namespace
+    // annotated with:
+    //   prometheus.io/scrape: "true"
+    //   prometheus.io/port:   "8080"        (your metrics port)
+    //   prometheus.io/path:   "/metrics"    (optional, default /metrics)
+    ///////////////////////////////////////////////////////////////////////
+
+    discovery.relabel "metrics_pods" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+        regex         = "true"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+        regex         = "(.+)"
+        target_label  = "__metrics_path__"
+      }
+      rule {
+        source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+        regex         = "([^:]+)(?::\\d+)?;(\\d+)"
+        replacement   = "$1:$2"
+        target_label  = "__address__"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        target_label  = "app"
+      }
+    }
+
+    prometheus.scrape "pods" {
+      targets         = discovery.relabel.metrics_pods.output
+      scrape_interval = "30s"
+      forward_to      = [prometheus.remote_write.default.receiver]
+    }
+
+    prometheus.remote_write "default" {
+      endpoint {
+        url = "http://prometheus.grafana-dev.svc.cluster.local:9090/api/v1/write"
+        // Using Mimir (grafana-dev-mimir/) instead? Swap for:
+        // url = "http://mimir.grafana-dev.svc.cluster.local:9009/api/v1/push"
+      }
+      external_labels = {
+        // CHANGE for production, e.g. cluster = "prod-tanzu-01"
+        cluster = "docker-desktop",
+      }
+    }
+
+    ///////////////////////////////////////////////////////////////////////
+    // TRACES: apps send OTLP to alloy:4317 (grpc) / alloy:4318 (http),
+    // Alloy forwards to Tempo.
+    ///////////////////////////////////////////////////////////////////////
+
+    otelcol.receiver.otlp "default" {
+      grpc {
+        endpoint = "0.0.0.0:4317"
+      }
+      http {
+        endpoint = "0.0.0.0:4318"
+      }
+      output {
+        traces = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+
+    otelcol.exporter.otlp "tempo" {
+      client {
+        endpoint = "tempo.grafana-dev.svc.cluster.local:4317"
+        tls {
+          insecure = true
+        }
+      }
+    }
+
+    ///////////////////////////////////////////////////////////////////////
+    // PROFILES: -> Pyroscope
+    ///////////////////////////////////////////////////////////////////////
+
+    pyroscope.write "default" {
+      endpoint {
+        url = "http://pyroscope.grafana-dev.svc.cluster.local:4040"
+      }
+    }
+
+    // Profile Alloy itself (Go pprof endpoints) so Pyroscope has data
+    // out of the box. Copy this block and point it at your own services
+    // that expose /debug/pprof to profile them too.
+    pyroscope.scrape "alloy_self" {
+      targets = [
+        {"__address__" = "localhost:12345", "service_name" = "alloy"},
+      ]
+      forward_to = [pyroscope.write.default.receiver]
+    }

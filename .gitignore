@@ -1,0 +1,6 @@
+# Generated self-signed certificates -- never commit private keys.
+certs/out/
+*.key
+*.crt
+*.csr
+*.srl

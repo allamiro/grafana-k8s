@@ -1,0 +1,23 @@
+# Pyroscope is internal-only (Grafana queries it, Alloy pushes to it).
+# For direct access to the Pyroscope UI from your machine:
+#   kubectl -n grafana-dev port-forward svc/pyroscope 4040:4040
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  namespace: grafana-dev
+  labels:
+    app: pyroscope
+spec:
+  type: ClusterIP
+  selector:
+    app: pyroscope
+  ports:
+    - name: http
+      protocol: TCP
+      port: 4040
+      targetPort: http
+    - name: grpc
+      protocol: TCP
+      port: 4041
+      targetPort: grpc

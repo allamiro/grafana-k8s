@@ -1,3 +1,13 @@
+# Grafana Service -- LoadBalancer variant.
+# Use this when your cluster can hand out load-balancer IPs
+# (Tanzu/NSX, MetalLB, cloud LBs).
+#
+# NOTE: apply EITHER this file OR grafana-svc-clusterip.yaml, not both --
+# they define the same Service name with a different type.
+#
+# On Docker Desktop's built-in Kubernetes, LoadBalancer Services are exposed
+# on localhost: after applying, Grafana is at https://localhost:443/
+# (the loadBalancerIP field is ignored there).
 apiVersion: v1
 kind: Service
 metadata:

@@ -80,9 +80,14 @@ spec:
         - name: grafana-config
           configMap:
             name: grafana-config
-        # TLS cert/key served by Grafana. Create this Secret out-of-band:
-        #   kubectl -n grafana-dev create secret tls grafana-tls \
-        #     --cert=tls.crt --key=tls.key
+        # TLS full chain + key + CA served by Grafana. Create with
+        # ./certs/generate-certs.sh (self-signed, dev) or from your real
+        # chain in production:
+        #   kubectl -n grafana-dev create secret generic grafana-tls \
+        #     --type=kubernetes.io/tls \
+        #     --from-file=tls.crt=fullchain.crt \
+        #     --from-file=tls.key=tls.key \
+        #     --from-file=ca.crt=ca.crt
         - name: grafana-tls
           secret:
             secretName: grafana-tls

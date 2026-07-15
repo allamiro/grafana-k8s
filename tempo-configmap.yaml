@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: grafana-dev
+  labels:
+    app: tempo
+data:
+  # Full Tempo config -- single-binary mode with local storage on the PVC
+  # mounted at /var/tempo. Receives traces over OTLP (gRPC 4317 / HTTP 4318).
+  # For production scale, switch storage.trace.backend to s3/gcs/azure.
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9096
+      log_level: info
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    ingester:
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        # Keep traces for 31 days.
+        block_retention: 744h
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+
+    # Generates RED metrics + service graphs from spans and remote-writes
+    # them to Prometheus (powers Grafana's service map).
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: docker-desktop   # CHANGE for production
+      storage:
+        path: /var/tempo/generator/wal
+        remote_write:
+          - url: http://prometheus.grafana-dev.svc.cluster.local:9090/api/v1/write
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors:
+            - service-graphs
+            - span-metrics
+
+    usage_report:
+      reporting_enabled: false

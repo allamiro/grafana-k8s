@@ -1,0 +1,17 @@
+# Mimir's own PVC -- kept here (not in the root pvcs.yaml) so the
+# grafana-dev-mimir directory is fully self-contained.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mimir-pvc-data
+  namespace: grafana-dev
+  labels:
+    app: mimir
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 20Gi

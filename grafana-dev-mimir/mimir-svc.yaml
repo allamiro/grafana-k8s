@@ -1,0 +1,23 @@
+# Mimir is internal-only (Alloy remote-writes to it, Grafana queries it).
+# For direct access from your machine:
+#   kubectl -n grafana-dev port-forward svc/mimir 9009:9009
+apiVersion: v1
+kind: Service
+metadata:
+  name: mimir
+  namespace: grafana-dev
+  labels:
+    app: mimir
+spec:
+  type: ClusterIP
+  selector:
+    app: mimir
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9009
+      targetPort: http
+    - name: grpc
+      protocol: TCP
+      port: 9095
+      targetPort: grpc

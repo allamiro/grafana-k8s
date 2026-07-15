@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mimir
+  namespace: grafana-dev
+  labels:
+    app: mimir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mimir
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mimir
+    spec:
+      securityContext:
+        # mimir image runs as uid/gid 10001
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: mimir
+          image: grafana/mimir:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/mimir/mimir.yaml
+          ports:
+            - name: http
+              containerPort: 9009
+            - name: grpc
+              containerPort: 9095
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          volumeMounts:
+            - name: mimir-data
+              mountPath: /data
+            - name: mimir-config
+              mountPath: /etc/mimir
+      volumes:
+        - name: mimir-data
+          persistentVolumeClaim:
+            claimName: mimir-pvc-data
+        - name: mimir-config
+          configMap:
+            name: mimir-config
