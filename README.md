@@ -227,6 +227,32 @@ For a local simulation, port-forward the four stores and use `localhost`
 endpoints (commands are in the example file); in production, expose the ingest
 endpoints (LoadBalancer/Ingress) and use those URLs instead.
 
+## Production on Tanzu: how log collection changes
+
+Alloy can get pod logs two ways, and this repo ships both:
+
+| | Dev (this repo's default) | Production Tanzu ([examples/alloy-logs-daemonset-tanzu.yaml](examples/alloy-logs-daemonset-tanzu.yaml)) |
+| --- | --- | --- |
+| Component | `loki.source.kubernetes` in [alloy-configmap.yaml](alloy-configmap.yaml) | `loki.source.file` reading `/var/log/pods` |
+| How | Streams logs through the Kubernetes API server (like `kubectl logs`) | One Alloy pod per node tails that node's log files directly |
+| Runs as | Single-replica Deployment, unprivileged | DaemonSet, root + hostPath (needs privileged namespace) |
+| Good for | Single node (Docker Desktop), restricted clusters | Multi-node production — scales with nodes, no API-server load |
+
+To switch on Tanzu:
+
+1. TKG v1.26+ enforces the `restricted` Pod Security profile on namespaces by
+   default, which blocks hostPath volumes. Allow it (label is also prepared,
+   commented, in [namespace.yaml](namespace.yaml)):
+   ```bash
+   kubectl label --overwrite ns grafana-dev pod-security.kubernetes.io/enforce=privileged
+   ```
+2. Remove the LOGS section from [alloy-configmap.yaml](alloy-configmap.yaml)
+   (so logs aren't collected twice) — the main Alloy Deployment keeps doing
+   metrics, OTLP traces, and profiles.
+3. `kubectl apply -f examples/alloy-logs-daemonset-tanzu.yaml`
+
+Everything downstream (Loki, dashboards, queries) is identical in both modes.
+
 ## Optional: Mimir instead of Prometheus
 
 [grafana-dev-mimir/](grafana-dev-mimir/) is a self-contained, scale-out

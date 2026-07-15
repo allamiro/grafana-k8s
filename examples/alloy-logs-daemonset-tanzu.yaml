@@ -1,0 +1,187 @@
+# PRODUCTION log collection for multi-node clusters (Tanzu TKG).
+#
+# Why this exists:
+#   The main alloy Deployment (alloy-deployment.yaml) tails logs THROUGH the
+#   Kubernetes API (loki.source.kubernetes) -- perfect for single-node
+#   Docker Desktop, but on a multi-node production cluster all log traffic
+#   would funnel through the API server, and a single replica is a
+#   bottleneck / single point of failure.
+#
+#   This file is the production pattern instead: an Alloy DaemonSet on every
+#   node that reads container log FILES from the node's own /var/log/pods.
+#
+# How to use on Tanzu:
+#   1. Deploy the main stack as usual, but REMOVE the LOGS section
+#      (discovery.relabel "pod_logs", loki.source.kubernetes, loki.process)
+#      from alloy-configmap.yaml so logs aren't collected twice. The main
+#      Deployment keeps doing metrics, traces (OTLP), and profiles.
+#   2. TKG v1.26+ enforces the "restricted" Pod Security Admission profile
+#      by default, which blocks hostPath volumes. Allow this namespace to
+#      run it:
+#        kubectl label --overwrite ns grafana-dev \
+#          pod-security.kubernetes.io/enforce=privileged
+#      (On older TKG with Pod Security Policies, bind the service account
+#      to the vmware-system-privileged PSP instead.)
+#   3. kubectl apply -f examples/alloy-logs-daemonset-tanzu.yaml
+#
+# Uses the existing `alloy` ServiceAccount/RBAC from alloy-rbac.yaml.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-logs-config
+  namespace: grafana-dev
+  labels:
+    app: alloy-logs
+data:
+  config.alloy: |
+    logging {
+      level  = "info"
+      format = "logfmt"
+    }
+
+    // Discover only the pods running on THIS node (HOSTNAME is set to the
+    // node name by the DaemonSet below).
+    discovery.kubernetes "pods" {
+      role = "pod"
+      selectors {
+        role  = "pod"
+        field = "spec.nodeName=" + coalesce(sys.env("HOSTNAME"), constants.hostname)
+      }
+    }
+
+    discovery.relabel "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        target_label  = "app"
+      }
+      // Map each container to its log files on the node:
+      //   /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log
+      rule {
+        source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+        separator     = "/"
+        action        = "replace"
+        target_label  = "__path__"
+        replacement   = "/var/log/pods/*$1/*.log"
+      }
+    }
+
+    loki.source.file "pod_logs" {
+      targets    = discovery.relabel.pod_logs.output
+      forward_to = [loki.process.pod_logs.receiver]
+    }
+
+    loki.process "pod_logs" {
+      // Container log files are CRI-formatted; parse timestamp/stream.
+      stage.cri { }
+
+      stage.static_labels {
+        values = {
+          // CHANGE for production, e.g. cluster = "prod-tanzu-01"
+          cluster = "docker-desktop",
+        }
+      }
+      forward_to = [loki.write.default.receiver]
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://loki.grafana-dev.svc.cluster.local:3100/loki/api/v1/push"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy-logs
+  namespace: grafana-dev
+  labels:
+    app: alloy-logs
+spec:
+  selector:
+    matchLabels:
+      app: alloy-logs
+  template:
+    metadata:
+      labels:
+        app: alloy-logs
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --storage.path=/var/lib/alloy/data
+          env:
+            # Makes sys.env("HOSTNAME") the NODE name (not the pod name) so
+            # the node field-selector in config.alloy works.
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            # Root is required to read other pods' log files under
+            # /var/log/pods -- this is why the namespace needs the
+            # privileged PSA label on TKG >= 1.26.
+            runAsUser: 0
+            runAsGroup: 0
+          ports:
+            - name: http
+              containerPort: 12345
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/alloy/data
+      # Collect from control-plane nodes too; remove if not wanted.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-logs-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: data
+          emptyDir: {}

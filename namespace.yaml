@@ -8,3 +8,8 @@ metadata:
     # to the internal Zarf registry, breaking public image pulls. This label
     # tells the zarf-agent to leave this namespace alone (harmless otherwise).
     zarf.dev/agent: ignore
+    # PRODUCTION (Tanzu TKG >= 1.26): TKG enforces the "restricted" Pod
+    # Security profile by default, which blocks the hostPath-based log
+    # DaemonSet (examples/alloy-logs-daemonset-tanzu.yaml). Uncomment to
+    # allow it:
+    # pod-security.kubernetes.io/enforce: privileged
