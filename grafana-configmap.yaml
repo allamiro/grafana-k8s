@@ -59,6 +59,23 @@ data:
     mode = console
     level = info
 
+  # Dashboard provider: loads every *.json in /var/lib/grafana/dashboards
+  # (mounted from the grafana-dashboards ConfigMap) into the "Kubernetes"
+  # folder, re-scanning every 30s.
+  dashboards-provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: kubernetes
+        orgId: 1
+        folder: Kubernetes
+        type: file
+        disableDeletion: false
+        allowUiUpdates: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+
   # Auto-provisioned datasources for the local stack.
   datasources.yaml: |
     apiVersion: 1

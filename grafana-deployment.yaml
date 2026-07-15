@@ -67,6 +67,12 @@ spec:
             - name: grafana-config
               mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
               subPath: datasources.yaml
+            - name: grafana-config
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards-provider.yaml
+            - name: grafana-dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
             - name: grafana-tls
               mountPath: /etc/grafana/certs
               readOnly: true
@@ -80,6 +86,9 @@ spec:
         - name: grafana-config
           configMap:
             name: grafana-config
+        - name: grafana-dashboards
+          configMap:
+            name: grafana-dashboards
         # TLS full chain + key + CA served by Grafana. Create with
         # ./certs/generate-certs.sh (self-signed, dev) or from your real
         # chain in production:
