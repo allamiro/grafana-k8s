@@ -27,7 +27,7 @@ spec:
           image: grafana/grafana:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - name: http
+            - name: https
               containerPort: 3000
           env:
             - name: GF_SECURITY_ADMIN_USER
@@ -38,13 +38,15 @@ spec:
           readinessProbe:
             httpGet:
               path: /api/health
-              port: http
+              port: https
+              scheme: HTTPS
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /api/health
-              port: http
+              port: https
+              scheme: HTTPS
             initialDelaySeconds: 30
             periodSeconds: 30
           resources:
@@ -65,6 +67,9 @@ spec:
             - name: grafana-config
               mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
               subPath: datasources.yaml
+            - name: grafana-tls
+              mountPath: /etc/grafana/certs
+              readOnly: true
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
@@ -75,3 +80,10 @@ spec:
         - name: grafana-config
           configMap:
             name: grafana-config
+        # TLS cert/key served by Grafana. Create this Secret out-of-band:
+        #   kubectl -n grafana-dev create secret tls grafana-tls \
+        #     --cert=tls.crt --key=tls.key
+        - name: grafana-tls
+          secret:
+            secretName: grafana-tls
+            defaultMode: 0440

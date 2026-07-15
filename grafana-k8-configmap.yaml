@@ -8,12 +8,18 @@ metadata:
 data:
   grafana.ini: |
     [server]
-    protocol = http
+    protocol = https
     domain = grafana-dev.example.com
     http_port = 3000
     root_url = https://grafana-dev.example.com:443/
-    # Grafana serves plain HTTP on 3000 inside the pod; TLS/443 is terminated
-    # at the LoadBalancer. serve_from_sub_path stays off (root_url has no path).
+    # TLS cert + key that Grafana serves on http_port. These paths must match
+    # where the cert Secret is mounted in the Deployment
+    # (the `grafana-tls` Secret -> /etc/grafana/certs).
+    # PLACEHOLDERS -- create the Secret with your real cert/key (see README).
+    cert_file = /etc/grafana/certs/tls.crt
+    cert_key  = /etc/grafana/certs/tls.key
+    # Optional CA bundle if you use a private CA:
+    # ca_cert = /etc/grafana/certs/ca.crt
 
     [security]
     # Set the admin password via the GF_SECURITY_ADMIN_PASSWORD env var

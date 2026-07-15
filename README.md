@@ -35,7 +35,11 @@ kubectl apply -f grafana-k8-ns.yaml
 # 2. Create the persistent volume claims
 kubectl apply -f grafana-k8-pvc.yaml
 
-# 3. Create the config, then the workload and service
+# 3. Create the TLS Secret Grafana serves from (see "TLS" below)
+kubectl -n grafana-dev create secret tls grafana-tls \
+  --cert=path/to/tls.crt --key=path/to/tls.key
+
+# 4. Create the config, then the workload and service
 kubectl apply -f grafana-k8-configmap.yaml
 kubectl apply -f grafana-k8-deployment.yaml
 kubectl apply -f grafana-k8-svc.yaml
@@ -64,6 +68,22 @@ kubectl port-forward -n grafana-dev svc/grafana 3000:3000
 > **Security:** The admin password defaults to `admin` via the
 > `GF_SECURITY_ADMIN_PASSWORD` env var in the Deployment. Replace it with a
 > `Secret` reference before using this anywhere real.
+
+## TLS
+
+Grafana terminates TLS itself (`protocol = https` in the ConfigMap) and serves on
+container port `3000`; the Service exposes it externally on `443`. Grafana reads
+its cert and key from `/etc/grafana/certs`, which is mounted from a `grafana-tls`
+Secret — **not** stored in this repo. Create it before deploying:
+
+```bash
+kubectl -n grafana-dev create secret tls grafana-tls \
+  --cert=path/to/tls.crt --key=path/to/tls.key
+```
+
+The cert paths in [grafana-k8-configmap.yaml](grafana-k8-configmap.yaml)
+(`cert_file` / `cert_key`) must match that mount path. Use a cert whose SAN
+covers `grafana-dev.example.com` (the configured `domain`/`root_url`).
 
 ## Teardown
 

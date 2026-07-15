@@ -15,5 +15,5 @@ spec:
   ports:
     - name: https
       protocol: TCP
-      port: 443          # external port (TLS terminated at the LB)
-      targetPort: http   # -> container port 3000
+      port: 443           # external port
+      targetPort: https   # -> container port 3000 (Grafana serves TLS)
