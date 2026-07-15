@@ -1,0 +1,37 @@
+# OpenSSL config for the Grafana server certificate.
+#
+# Used by generate-certs.sh for the dev/self-signed flow, and reusable as-is
+# to generate a CSR for your REAL corporate/public CA in production:
+#
+#   openssl genrsa -out grafana.key 2048
+#   openssl req -new -key grafana.key -config certs/openssl.cnf -out grafana.csr
+#   # -> submit grafana.csr to your CA, get back the signed cert + CA chain
+#
+# Before production use, change the [dn] and [alt_names] placeholders to the
+# real hostname/IPs Grafana will be reached at (every name users type in the
+# browser MUST appear as a SAN, or browsers reject the cert).
+
+[ req ]
+default_bits       = 2048
+prompt             = no
+default_md         = sha256
+distinguished_name = dn
+req_extensions     = v3_req
+
+[ dn ]
+O  = Example Org
+CN = grafana.example.com
+
+[ v3_req ]
+basicConstraints = CA:FALSE
+keyUsage         = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName   = @alt_names
+
+[ alt_names ]
+DNS.1 = grafana.example.com
+DNS.2 = localhost
+IP.1  = 127.0.0.1
+# Production examples -- uncomment and edit:
+# DNS.3 = grafana.prod.example.com
+# IP.2  = 10.0.0.100     # the LoadBalancer IP, if users reach it by IP

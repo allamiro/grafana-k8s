@@ -28,6 +28,20 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - -config.file=/etc/mimir/mimir.yaml
+            # Expands ${RUSTFS_ACCESS_KEY}/${RUSTFS_SECRET_KEY} in the config
+            # from the env vars below.
+            - -config.expand-env=true
+          env:
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-credentials
+                  key: access-key
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-credentials
+                  key: secret-key
           ports:
             - name: http
               containerPort: 9009
@@ -57,6 +71,9 @@ spec:
               mountPath: /data
             - name: mimir-config
               mountPath: /etc/mimir
+            - name: rustfs-ca
+              mountPath: /etc/rustfs-ca
+              readOnly: true
       volumes:
         - name: mimir-data
           persistentVolumeClaim:
@@ -64,3 +81,10 @@ spec:
         - name: mimir-config
           configMap:
             name: mimir-config
+        # CA that signed RustFS's TLS cert (created by generate-rustfs-certs.sh)
+        - name: rustfs-ca
+          secret:
+            secretName: rustfs-tls
+            items:
+              - key: ca.crt
+                path: ca.crt

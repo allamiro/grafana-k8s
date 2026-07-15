@@ -111,11 +111,11 @@ data:
         access: proxy
         url: http://pyroscope.grafana-dev.svc.cluster.local:4040
         editable: true
-      # If you deploy Mimir (grafana-dev-mimir/) instead of / alongside
-      # Prometheus, uncomment:
-      # - name: Mimir
-      #   type: prometheus
-      #   uid: mimir
-      #   access: proxy
-      #   url: http://mimir.grafana-dev.svc.cluster.local:9009/prometheus
-      #   editable: true
+      # Mimir (grafana-dev-mimir/, RustFS-backed) -- Alloy dual-writes
+      # metrics to Prometheus AND Mimir, so both are queryable.
+      - name: Mimir
+        type: prometheus
+        uid: mimir
+        access: proxy
+        url: http://mimir.grafana-dev.svc.cluster.local:9009/prometheus
+        editable: true

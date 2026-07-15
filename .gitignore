@@ -1,5 +1,6 @@
 # Generated self-signed certificates -- never commit private keys.
 certs/out/
+grafana-dev-mimir/certs-out/
 *.key
 *.crt
 *.csr

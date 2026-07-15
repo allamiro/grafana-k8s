@@ -1,5 +1,22 @@
-# Mimir's own PVC -- kept here (not in the root pvcs.yaml) so the
-# grafana-dev-mimir directory is fully self-contained.
+# PVCs for the Mimir + RustFS pair -- kept here (not in the root pvcs.yaml)
+# so the grafana-dev-mimir directory is fully self-contained.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs-pvc-data
+  namespace: grafana-dev
+  labels:
+    app: rustfs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  # storageClassName: tanzu-storage-computer   # <- Tanzu / production
+  resources:
+    requests:
+      storage: 30Gi
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

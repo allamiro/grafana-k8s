@@ -1,135 +1,40 @@
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboards
-  namespace: grafana-dev
-  labels:
-    app: grafana
 data:
-  # Provisioned dashboards (mounted at /var/lib/grafana/dashboards and
-  # loaded by the provider in grafana-configmap.yaml). Edit here, re-apply,
-  # and Grafana picks changes up within ~30s.
-  kubernetes-logs.json: |
-    {
-      "uid": "k8s-logs",
-      "title": "Kubernetes / Logs (Loki)",
-      "tags": ["kubernetes", "logs", "provisioned"],
-      "timezone": "browser",
-      "schemaVersion": 39,
-      "version": 1,
-      "refresh": "30s",
-      "time": { "from": "now-1h", "to": "now" },
-      "templating": {
-        "list": [
-          {
-            "name": "namespace",
-            "label": "Namespace",
-            "type": "query",
-            "datasource": { "type": "loki", "uid": "loki" },
-            "query": "label_values(namespace)",
-            "refresh": 2,
-            "includeAll": true,
-            "multi": true,
-            "current": { "text": "All", "value": "$__all" }
-          },
-          {
-            "name": "search",
-            "label": "Contains text",
-            "type": "textbox",
-            "query": "",
-            "current": { "text": "", "value": "" }
-          }
-        ]
-      },
-      "panels": [
-        {
-          "id": 1,
-          "type": "timeseries",
-          "title": "Log volume by namespace (lines/sec)",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-          "datasource": { "type": "loki", "uid": "loki" },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": { "drawStyle": "line", "fillOpacity": 15, "stacking": { "mode": "normal" } }
-            },
-            "overrides": []
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (namespace) (rate({namespace=~\"$namespace\"} [$__auto]))",
-              "legendFormat": "{{namespace}}"
-            }
-          ]
-        },
-        {
-          "id": 2,
-          "type": "timeseries",
-          "title": "Error lines by namespace (lines/sec)",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-          "datasource": { "type": "loki", "uid": "loki" },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "color": { "mode": "fixed", "fixedColor": "red" },
-              "custom": { "drawStyle": "line", "fillOpacity": 15 }
-            },
-            "overrides": []
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (namespace) (rate({namespace=~\"$namespace\"} |~ \"(?i)(error|fatal|panic)\" [$__auto]))",
-              "legendFormat": "{{namespace}}"
-            }
-          ]
-        },
-        {
-          "id": 3,
-          "type": "logs",
-          "title": "Live logs ($namespace)",
-          "gridPos": { "h": 14, "w": 24, "x": 0, "y": 8 },
-          "datasource": { "type": "loki", "uid": "loki" },
-          "options": {
-            "showTime": true,
-            "showLabels": false,
-            "wrapLogMessage": true,
-            "sortOrder": "Descending",
-            "enableLogDetails": true
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "{namespace=~\"$namespace\"} |= \"$search\""
-            }
-          ]
-        }
-      ]
-    }
-
-  kubernetes-containers.json: |
+  kubernetes-containers.json: |-
     {
       "uid": "k8s-containers",
       "title": "Kubernetes / Container Metrics (Prometheus)",
-      "tags": ["kubernetes", "metrics", "provisioned"],
+      "tags": [
+        "kubernetes",
+        "metrics",
+        "provisioned"
+      ],
       "timezone": "browser",
       "schemaVersion": 39,
       "version": 1,
       "refresh": "30s",
-      "time": { "from": "now-1h", "to": "now" },
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
       "templating": {
         "list": [
           {
             "name": "namespace",
             "label": "Namespace",
             "type": "query",
-            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
             "query": "label_values(container_cpu_usage_seconds_total, namespace)",
             "refresh": 2,
             "includeAll": true,
             "multi": true,
-            "current": { "text": "All", "value": "$__all" }
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
           }
         ]
       },
@@ -137,14 +42,27 @@ data:
         {
           "id": 1,
           "type": "stat",
-          "title": "Running containers",
-          "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "title": "Running pods",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "refId": "A",
-              "expr": "count(container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\", pod!=\"\"})"
+              "expr": "count(container_memory_working_set_bytes{namespace=~\"$namespace\", container=\"\", pod!=\"\"})"
             }
           ]
         },
@@ -152,13 +70,26 @@ data:
           "id": 2,
           "type": "stat",
           "title": "Total memory in use",
-          "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\", pod!=\"\"})"
+              "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\", container=\"\", pod!=\"\"})"
             }
           ]
         },
@@ -166,13 +97,27 @@ data:
           "id": 3,
           "type": "stat",
           "title": "Total CPU usage (cores)",
-          "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "short", "decimals": 2 }, "overrides": [] },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 2
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container!=\"\", pod!=\"\"}[5m]))"
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container=\"\", pod!=\"\"}[5m]))"
             }
           ]
         },
@@ -180,9 +125,22 @@ data:
           "id": 4,
           "type": "stat",
           "title": "Network receive (all pods)",
-          "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "refId": "A",
@@ -194,19 +152,30 @@ data:
           "id": 5,
           "type": "timeseries",
           "title": "CPU usage by pod (cores)",
-          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
               "unit": "short",
-              "custom": { "drawStyle": "line", "fillOpacity": 10 }
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10
+              }
             },
             "overrides": []
           },
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container!=\"\", pod!=\"\"}[5m]))",
+              "expr": "sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container=\"\", pod!=\"\"}[5m]))",
               "legendFormat": "{{namespace}}/{{pod}}"
             }
           ]
@@ -215,19 +184,30 @@ data:
           "id": 6,
           "type": "timeseries",
           "title": "Memory (working set) by pod",
-          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
               "unit": "bytes",
-              "custom": { "drawStyle": "line", "fillOpacity": 10 }
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10
+              }
             },
             "overrides": []
           },
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\", pod!=\"\"})",
+              "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", container=\"\", pod!=\"\"})",
               "legendFormat": "{{namespace}}/{{pod}}"
             }
           ]
@@ -236,12 +216,23 @@ data:
           "id": 7,
           "type": "timeseries",
           "title": "Network I/O by pod",
-          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 14 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
               "unit": "Bps",
-              "custom": { "drawStyle": "line", "fillOpacity": 10 }
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10
+              }
             },
             "overrides": []
           },
@@ -260,3 +251,250 @@ data:
         }
       ]
     }
+  kubernetes-logs.json: |-
+    {
+      "uid": "k8s-logs",
+      "title": "Kubernetes / Logs (Loki)",
+      "tags": [
+        "kubernetes",
+        "logs",
+        "provisioned"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "loki"
+            },
+            "query": "label_values(namespace)",
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          },
+          {
+            "name": "search",
+            "label": "Contains text",
+            "type": "textbox",
+            "query": "",
+            "current": {
+              "text": "",
+              "value": ""
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Log volume by namespace (lines/sec)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 15,
+                "stacking": {
+                  "mode": "normal"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (namespace) (rate({namespace=~\"$namespace\"} [$__auto]))",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Error lines by namespace (lines/sec)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "red"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 15
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (namespace) (rate({namespace=~\"$namespace\"} |~ \"(?i)(error|fatal|panic)\" [$__auto]))",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "logs",
+          "title": "Live logs ($namespace)",
+          "gridPos": {
+            "h": 14,
+            "w": 24,
+            "x": 0,
+            "y": 8
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": false,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=~\"$namespace\"} |= \"$search\""
+            }
+          ]
+        }
+      ]
+    }
+  tempo-traces.json: |
+    {
+      "uid": "tempo-traces",
+      "title": "Kubernetes / Traces (Tempo)",
+      "tags": ["kubernetes", "traces", "provisioned"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Request rate by service (from Tempo span metrics)",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": { "drawStyle": "line", "fillOpacity": 15 }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (service) (rate(traces_spanmetrics_calls_total[5m]))",
+              "legendFormat": "{{service}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Error rate by service",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": { "mode": "fixed", "fixedColor": "red" },
+              "custom": { "drawStyle": "line", "fillOpacity": 15 }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{service}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "p95 span latency by service",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": { "drawStyle": "line", "fillOpacity": 15 }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket[5m])))",
+              "legendFormat": "{{service}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Recent traces (TraceQL: {}) — click a trace ID to open it",
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 8 },
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "traceql",
+              "query": "{}",
+              "limit": 20,
+              "tableType": "traces"
+            }
+          ]
+        }
+      ]
+    }
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: grafana-dev

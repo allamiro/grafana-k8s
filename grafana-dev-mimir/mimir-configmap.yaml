@@ -6,10 +6,15 @@ metadata:
   labels:
     app: mimir
 data:
-  # Full Mimir config -- monolithic mode (target: all) with filesystem
-  # storage on the PVC mounted at /data. Mimir is a horizontally-scalable
-  # Prometheus-compatible metrics store; use it INSTEAD of the bundled
-  # Prometheus when you need long-term/scale-out metrics.
+  # Full Mimir config -- monolithic mode (target: all) storing blocks in
+  # RustFS (S3-compatible object storage, TLS) with local disk only for
+  # WAL/cache. Mimir is a horizontally-scalable Prometheus-compatible
+  # metrics store; use it INSTEAD of the bundled Prometheus when you need
+  # long-term/scale-out metrics.
+  #
+  # ${RUSTFS_ACCESS_KEY}/${RUSTFS_SECRET_KEY} placeholders are expanded from
+  # env vars (the Deployment runs mimir with -config.expand-env=true and
+  # injects them from the rustfs-credentials Secret).
   #
   # Endpoints:
   #   remote_write (Alloy) : http://mimir.grafana-dev.svc.cluster.local:9009/api/v1/push
@@ -24,18 +29,38 @@ data:
       grpc_listen_port: 9095
       log_level: info
 
+    # Must live on a writable path (the container's workdir is read-only).
+    activity_tracker:
+      filepath: /data/metrics-activity.log
+
     common:
       storage:
-        backend: filesystem
-        filesystem:
-          dir: /data/storage
+        backend: s3
+        s3:
+          endpoint: rustfs.grafana-dev.svc.cluster.local:9000
+          access_key_id: ${RUSTFS_ACCESS_KEY}
+          secret_access_key: ${RUSTFS_SECRET_KEY}
+          # RustFS serves TLS with a self-signed cert; trust its CA
+          # (mounted from the rustfs-tls Secret).
+          insecure: false
+          http:
+            tls_ca_path: /etc/rustfs-ca/ca.crt
 
     blocks_storage:
-      storage_prefix: blocks
+      s3:
+        bucket_name: mimir-blocks
       bucket_store:
         sync_dir: /data/tsdb-sync
       tsdb:
         dir: /data/tsdb
+
+    ruler:
+      # Must live on a writable path (the container's workdir is read-only).
+      rule_path: /data/ruler
+
+    ruler_storage:
+      s3:
+        bucket_name: mimir-ruler
 
     compactor:
       data_dir: /data/compactor
@@ -59,11 +84,6 @@ data:
     store_gateway:
       sharding_ring:
         replication_factor: 1
-
-    ruler_storage:
-      backend: filesystem
-      filesystem:
-        dir: /data/rules
 
     limits:
       # Keep metrics for 31 days (0 = keep forever).

@@ -27,17 +27,15 @@ openssl genrsa -out ca.key 4096
 openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 \
   -subj "/O=Grafana Dev/CN=Grafana Dev CA" -out ca.crt
 
-echo ">> 2/4 Generating server key + CSR for ${DOMAIN}"
+echo ">> 2/4 Generating server key + CSR for ${DOMAIN} (from certs/openssl.cnf)"
+# Build the effective config from the template, swapping in $DOMAIN.
+sed "s/grafana\.example\.com/${DOMAIN}/g" "$(dirname "$OUT")/openssl.cnf" > openssl.cnf
 openssl genrsa -out tls.key 2048
-openssl req -new -key tls.key -subj "/CN=${DOMAIN}" -out tls.csr
+openssl req -new -key tls.key -config openssl.cnf -out tls.csr
 
-echo ">> 3/4 Signing server cert (SANs: ${DOMAIN}, localhost, 127.0.0.1)"
-cat > san.cnf <<EOF
-subjectAltName = DNS:${DOMAIN}, DNS:localhost, IP:127.0.0.1
-extendedKeyUsage = serverAuth
-EOF
+echo ">> 3/4 Signing server cert (SANs from openssl.cnf)"
 openssl x509 -req -in tls.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
-  -days "${DAYS}" -sha256 -extfile san.cnf -out tls.crt
+  -days "${DAYS}" -sha256 -extfile openssl.cnf -extensions v3_req -out tls.crt
 
 echo ">> 4/4 Creating/updating Secret ${NAMESPACE}/grafana-tls (full chain + CA)"
 # Grafana serves the FULL CHAIN: server cert followed by the CA cert.

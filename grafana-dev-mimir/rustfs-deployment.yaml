@@ -1,0 +1,82 @@
+# RustFS: S3-compatible object storage (MinIO alternative) serving as
+# Mimir's long-term block store. Serves the S3 API over TLS on 9000 using
+# the `rustfs-tls` Secret (generate with ./generate-rustfs-certs.sh).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs
+  namespace: grafana-dev
+  labels:
+    app: rustfs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rustfs
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: rustfs
+    spec:
+      containers:
+        - name: rustfs
+          image: rustfs/rustfs:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-credentials
+                  key: access-key
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-credentials
+                  key: secret-key
+            - name: RUSTFS_VOLUMES
+              value: /data
+            - name: RUSTFS_ADDRESS
+              value: 0.0.0.0:9000
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "true"
+            # Directory holding rustfs_cert.pem + rustfs_key.pem (exact names
+            # required by RustFS) -- mounted from the rustfs-tls Secret.
+            - name: RUSTFS_TLS_PATH
+              value: /tls
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: rustfs-data
+              mountPath: /data
+            - name: rustfs-tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: rustfs-data
+          persistentVolumeClaim:
+            claimName: rustfs-pvc-data
+        - name: rustfs-tls
+          secret:
+            secretName: rustfs-tls
