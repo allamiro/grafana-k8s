@@ -24,7 +24,9 @@ spec:
         runAsGroup: 10001
       containers:
         - name: tempo
-          image: grafana/tempo:latest
+          # Pinned: the `latest` tag currently ships a 3.0 release candidate
+          # whose config schema differs. Bump deliberately when 3.0 is stable.
+          image: grafana/tempo:2.8.1
           imagePullPolicy: IfNotPresent
           args:
             - -config.file=/etc/tempo/tempo.yaml

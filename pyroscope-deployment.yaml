@@ -32,7 +32,7 @@ spec:
             - name: http
               containerPort: 4040
             - name: grpc
-              containerPort: 4041
+              containerPort: 9095
           readinessProbe:
             httpGet:
               path: /ready

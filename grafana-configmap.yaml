@@ -52,9 +52,6 @@ data:
     reporting_enabled = false
     check_for_updates = false
 
-    [alerting]
-    enabled = true
-
     [unified_alerting]
     enabled = true
 

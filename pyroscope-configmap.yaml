@@ -14,7 +14,9 @@ data:
 
     server:
       http_listen_port: 4040
-      grpc_listen_port: 4041
+      # Must stay 9095: Pyroscope v2's internal metastore client dials its
+      # own gRPC server at the default localhost:9095.
+      grpc_listen_port: 9095
       log_level: info
 
     pyroscopedb:

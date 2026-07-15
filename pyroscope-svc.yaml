@@ -19,5 +19,5 @@ spec:
       targetPort: http
     - name: grpc
       protocol: TCP
-      port: 4041
+      port: 9095
       targetPort: grpc

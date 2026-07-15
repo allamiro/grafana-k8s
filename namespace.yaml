@@ -4,3 +4,7 @@ metadata:
   name: grafana-dev
   labels:
     name: grafana-dev
+    # If Zarf is installed on the cluster, its webhook rewrites image refs
+    # to the internal Zarf registry, breaking public image pulls. This label
+    # tells the zarf-agent to leave this namespace alone (harmless otherwise).
+    zarf.dev/agent: ignore
