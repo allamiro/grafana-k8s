@@ -8,8 +8,12 @@ metadata:
 data:
   grafana.ini: |
     [server]
-    root_url = %(protocol)s://%(domain)s:%(http_port)s/
+    protocol = http
+    domain = grafana-dev.example.com
     http_port = 3000
+    root_url = https://grafana-dev.example.com:443/
+    # Grafana serves plain HTTP on 3000 inside the pod; TLS/443 is terminated
+    # at the LoadBalancer. serve_from_sub_path stays off (root_url has no path).
 
     [security]
     # Set the admin password via the GF_SECURITY_ADMIN_PASSWORD env var

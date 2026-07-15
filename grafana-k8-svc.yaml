@@ -6,13 +6,14 @@ metadata:
   labels:
     app: grafana
 spec:
-  # ClusterIP keeps Grafana internal; reach it with `kubectl port-forward`.
-  # Switch to LoadBalancer (e.g. on Tanzu/NSX) to get an external IP.
-  type: ClusterIP
+  type: LoadBalancer
+  # PLACEHOLDER IP -- CHANGE THIS to your environment's load balancer IP
+  # (Tanzu/NSX/MetalLB). Remove the line to let the LB auto-assign one.
+  loadBalancerIP: 10.0.0.100
   selector:
     app: grafana
   ports:
-    - name: http
+    - name: https
       protocol: TCP
-      port: 3000
-      targetPort: http
+      port: 443          # external port (TLS terminated at the LB)
+      targetPort: http   # -> container port 3000
