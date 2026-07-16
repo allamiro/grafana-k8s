@@ -29,3 +29,74 @@ data:
 
     analytics:
       reporting_enabled: false
+
+    # ===== OPTIONAL / ADVANCED (commented out -- uncomment to enable) =====
+    # Reference of commonly-needed options for single-binary (-target=all)
+    # Pyroscope. Nothing below is active; uncomment + adjust as needed. Keep
+    # the 4-space block-scalar indentation when enabling these.
+
+    # --- server: HTTP/gRPC listeners and logging ---
+    # server:
+    #   http_listen_port: 4040          # HTTP API / UI port (default 4040)
+    #   grpc_listen_port: 9095          # internal gRPC port (keep 9095 for metastore client)
+    #   log_level: info                 # debug | info | warn | error
+
+    # --- pyroscopedb: local on-disk block storage / retention ---
+    # pyroscopedb:
+    #   data_path: /data                # directory for local blocks/WAL on the PVC
+    #   max_block_duration: 1h          # how long to buffer before flushing a block
+    #   row_group_target_size: 134217728 # parquet row-group target size in bytes
+
+    # --- storage: object-storage backend (alternative to filesystem) ---
+    # Mirrors the RustFS/Mimir S3-over-TLS pattern used elsewhere in this repo.
+    # storage:
+    #   backend: s3                     # filesystem | s3 | gcs | azure
+    #   s3:
+    #     endpoint: rustfs.grafana-dev.svc.cluster.local:9000  # S3 endpoint host:port
+    #     bucket_name: pyroscope-data   # target bucket
+    #     access_key_id: pyroscope      # S3 access key
+    #     secret_access_key: CHANGE_ME  # S3 secret key
+    #     insecure: false               # true = plain HTTP (no TLS); false = HTTPS
+    #     region: us-east-1             # region (some S3-compatible stores require it)
+
+    # --- limits: per-tenant query and ingestion guardrails ---
+    # limits:
+    #   max_query_lookback: 7d          # how far back queries may reach
+    #   max_query_length: 24h           # max time range a single query may span
+    #   ingestion_rate_mb: 4            # sustained ingest rate cap (MB/s per tenant)
+    #   ingestion_burst_size_mb: 6      # burst ingest cap (MB per tenant)
+    #   max_profile_size_bytes: 4194304 # reject profiles larger than this (4 MiB)
+
+    # --- compactor: background block compaction + retention ---
+    # compactor:
+    #   compaction_interval: 5m         # how often to run compaction
+    # Retention note: Pyroscope enforces retention via compactor deletion of
+    # old blocks; set retention through limits.max_query_lookback and object-
+    # store lifecycle rules rather than a single retention_period knob.
+
+    # --- scrape_configs: Pyroscope pulling pprof directly (self-scrape) ---
+    # Primary path in this repo is Alloy's pyroscope.scrape; this is the
+    # built-in alternative if you want Pyroscope to discover + pull itself.
+    # scrape_configs:
+    #   - job_name: kubernetes-pods
+    #     scrape_interval: 15s
+    #     kubernetes_sd_configs:
+    #       - role: pod                 # discover pods via the Kubernetes API
+    #     profiling_config:
+    #       pprof_config:
+    #         memory:
+    #           enabled: true
+    #           path: /debug/pprof/allocs
+    #         cpu:
+    #           enabled: true
+    #           path: /debug/pprof/profile
+    #     relabel_configs:
+    #       - source_labels: [__meta_kubernetes_pod_annotation_pyroscope_io_scrape]
+    #         action: keep
+    #         regex: "true"
+
+    # --- memberlist: gossip ring for HA / multi-replica deployments ---
+    # memberlist:
+    #   join_members:
+    #     - pyroscope-memberlist.grafana-dev.svc.cluster.local:7946  # peer discovery
+    #   bind_port: 7946                 # gossip port

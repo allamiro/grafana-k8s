@@ -91,3 +91,94 @@ data:
 
     usage_stats:
       enabled: false
+
+    # ===== OPTIONAL / ADVANCED (commented out -- uncomment to enable) =====
+    # Everything below is reference config for commonly-needed Mimir features
+    # that this monolithic (target: all) deployment does not use yet. Copy a
+    # block up into the active config above (and remove the leading "# ") to
+    # turn it on. Values shown are sane starting points, not mandates.
+    #
+    # ----- limits: per-tenant guardrails & retention -----
+    # limits:
+    #   ingestion_rate: 100000                 # samples/sec accepted per tenant (sustained)
+    #   ingestion_burst_size: 2000000          # max burst of samples above ingestion_rate
+    #   max_global_series_per_user: 1500000    # active series cap per tenant (0 = unlimited)
+    #   max_label_names_per_series: 30         # reject series with too many labels
+    #   compactor_blocks_retention_period: 744h # block retention (ALREADY ACTIVE above; keep only one)
+    #   out_of_order_time_window: 10m          # accept samples this far out of order (0 disables OOO)
+    #   max_fetched_chunks_per_query: 2000000  # protect queriers from huge queries
+    #
+    # ----- ingester: replication & ring tuning -----
+    # ingester:
+    #   ring:
+    #     replication_factor: 3                # >1 REQUIRES multiple ingester replicas; keep 1 for single-node
+    #     num_tokens: 128                      # ring tokens per instance (affects series distribution)
+    #
+    # ----- memberlist: gossip-based clustering (HA) -----
+    # NOTE: real HA also needs multiple replicas of each component (Deployment/StatefulSet
+    # replicas > 1) plus a headless Service named "mimir-gossip-ring".
+    # memberlist:
+    #   join_members:
+    #     - mimir-gossip-ring.grafana-dev.svc.cluster.local:7946
+    #   bind_port: 7946
+    #
+    # ----- alertmanager: managed alerting (bundled Alertmanager) -----
+    # alertmanager:
+    #   data_dir: /data/alertmanager          # writable path for AM state
+    #   external_url: http://mimir.grafana-dev.svc.cluster.local:9009/alertmanager
+    #   sharding_ring:
+    #     replication_factor: 1
+    # alertmanager_storage:
+    #   s3:
+    #     bucket_name: mimir-alertmanager      # dedicated bucket for AM configs/state
+    #
+    # ----- ruler extras (rule_path + ruler_storage ALREADY ACTIVE above) -----
+    # ruler:
+    #   alertmanager_url: http://mimir.grafana-dev.svc.cluster.local:9009/alertmanager  # where to send alerts
+    #   enable_api: true                       # enable the ruler config HTTP API (create/update rules)
+    #
+    # ----- query path: frontend, workers, and results cache -----
+    # query_frontend:
+    #   max_outstanding_per_tenant: 200        # queued queries per tenant before rejecting
+    # frontend_worker:
+    #   frontend_address: mimir.grafana-dev.svc.cluster.local:9095  # queriers pull work from frontend (gRPC)
+    # query_range:
+    #   results_cache:
+    #     backend: memcached
+    #     memcached:
+    #       addresses: dns+memcached.grafana-dev.svc.cluster.local:11211  # cache query results
+    #   cache_results: true
+    #
+    # ----- store-gateway & compactor sharding -----
+    # store_gateway:
+    #   sharding_ring:
+    #     replication_factor: 3                # >1 needs multiple store-gateway replicas
+    # compactor:
+    #   compaction_interval: 30m               # how often the compactor runs
+    #
+    # ----- blocks_storage tuning: caches & TSDB block ranges -----
+    # blocks_storage:
+    #   bucket_store:
+    #     sync_interval: 15m                   # how often store-gateway syncs the bucket index
+    #     chunks_cache:
+    #       backend: memcached
+    #       memcached:
+    #         addresses: dns+memcached.grafana-dev.svc.cluster.local:11211  # cache chunks for queries
+    #   tsdb:
+    #     retention_period: 24h                # local TSDB retention before shipping to object storage
+    #     block_ranges_period:
+    #       - 2h                               # smallest block range compacted before upload
+    #
+    # ----- scaling out: monolithic -> microservices -----
+    # Run one Deployment/StatefulSet per component, each with its OWN target but
+    # sharing this SAME object-storage bucket config (blocks_storage.s3 etc.) and
+    # the same memberlist gossip ring. Example targets to split into:
+    #   target: distributor      # receives remote_write, forwards to ingesters
+    #   target: ingester         # holds recent series in memory + WAL, ships blocks
+    #   target: querier          # executes queries against ingesters + store-gateway
+    #   target: query-frontend   # splits/caches queries, queues work for queriers
+    #   target: store-gateway    # serves historical blocks from object storage
+    #   target: compactor        # compacts/dedupes blocks in object storage
+    #   target: ruler            # evaluates recording/alerting rules
+    #   target: alertmanager     # handles alert notifications
+    # (Set -target=<name> per pod; all pods point at the same S3 buckets + gossip ring.)

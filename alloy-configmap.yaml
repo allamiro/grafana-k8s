@@ -16,6 +16,13 @@ data:
   #
   # Apps OUTSIDE Kubernetes: run Alloy on that host with
   # examples/alloy-external.alloy pointed at these same backends.
+  #
+  # An "OPTIONAL COMPONENTS" section at the bottom carries every other common
+  # Alloy component (k8s events, journald, syslog, node/kube-state metrics,
+  # ServiceMonitors, blackbox, tail sampling, span metrics, eBPF/Java profiling,
+  # Faro RUM, ...) commented out. Uncomment a block to enable it; each already
+  # forwards to the loki.write / prometheus.remote_write / pyroscope.write sinks
+  # defined in the active config above.
   config.alloy: |
     logging {
       level  = "info"
@@ -230,3 +237,230 @@ data:
       ]
       forward_to = [pyroscope.write.default.receiver]
     }
+
+    ///////////////////////////////////////////////////////////////////////
+    // OPTIONAL COMPONENTS -- NOT enabled. Uncomment (remove the leading //)
+    // a block to turn it on. Grouped by signal. Each forwards to the same
+    // loki.write.default / prometheus.remote_write.default /
+    // pyroscope.write.default sinks already defined above.
+    ///////////////////////////////////////////////////////////////////////
+
+    // ===== LOGS (optional) =================================================
+
+    // Kubernetes cluster events (like `kubectl get events`) -> Loki. Answers
+    // "why was my pod OOMKilled / evicted / failing to schedule" without shell.
+    // loki.source.kubernetes_events "cluster_events" {
+    //   namespaces = []                       // empty = all namespaces
+    //   forward_to = [loki.process.pods.receiver]
+    // }
+
+    // Push API: receive logs from external Alloy/Promtail/Loki clients. Point
+    // them at http://alloy.grafana-dev.svc.cluster.local:3101/loki/api/v1/push
+    // (expose port 3101 on the Alloy Deployment + Service).
+    // loki.source.api "push" {
+    //   http {
+    //     listen_address = "0.0.0.0"
+    //     listen_port    = 3101
+    //   }
+    //   forward_to = [loki.process.pods.receiver]
+    // }
+
+    // Syslog receiver (RFC5424/3164) -> Loki. For network gear, VMs, appliances.
+    // loki.source.syslog "syslog" {
+    //   listener {
+    //     address  = "0.0.0.0:1514"
+    //     protocol = "tcp"
+    //     labels   = { job = "syslog" }
+    //   }
+    //   forward_to = [loki.process.pods.receiver]
+    // }
+
+    // systemd journal (node/system logs). Requires DaemonSet mode with the host
+    // journal mounted at /var/log/journal.
+    // loki.source.journal "journal" {
+    //   max_age    = "12h"
+    //   path       = "/var/log/journal"
+    //   labels     = { job = "systemd-journal" }
+    //   forward_to = [loki.process.pods.receiver]
+    // }
+
+    // Extra processing stages -- either add inside loki.process.pods above or
+    // make a dedicated pipeline like this and forward pod logs through it.
+    // loki.process "advanced" {
+    //   stage.json   { expressions = { level = "level", msg = "message" } }
+    //   stage.labels { values = { level = "" } }
+    //   stage.drop   { expression = "(?i)(/healthz|/readyz|kube-probe)" }   // drop health-check noise
+    //   stage.multiline { firstline = "^\\d{4}-\\d{2}-\\d{2}" }             // stitch stack traces
+    //   stage.label_drop { values = ["pod_template_hash"] }                // cap cardinality
+    //   forward_to = [loki.write.default.receiver]
+    // }
+
+    // PodLogs CRD selection (Grafana Agent Operator style) -> Loki.
+    // loki.source.podlogs "crd" {
+    //   forward_to = [loki.process.pods.receiver]
+    // }
+
+    // ===== METRICS (optional) ==============================================
+
+    // kube-state-metrics (object state: deployments, pods, nodes, ...). Deploy
+    // KSM first, then scrape its Service.
+    // prometheus.scrape "kube_state_metrics" {
+    //   targets = [{ __address__ = "kube-state-metrics.kube-system.svc.cluster.local:8080" }]
+    //   scrape_interval = "30s"
+    //   forward_to = [prometheus.remote_write.default.receiver]
+    // }
+
+    // Node/host metrics (CPU, mem, disk, filesystem, netdev) via the built-in
+    // Unix (node) exporter. Best in DaemonSet mode so every node is covered.
+    // prometheus.exporter.unix "node" { }
+    // prometheus.scrape "node" {
+    //   targets         = prometheus.exporter.unix.node.targets
+    //   scrape_interval = "30s"
+    //   forward_to      = [prometheus.remote_write.default.receiver]
+    // }
+
+    // Kubelet's OWN metrics (not cadvisor) -- volume stats, pod lifecycle.
+    // discovery.relabel "kubelet" {
+    //   targets = discovery.kubernetes.nodes.targets
+    //   rule {
+    //     target_label = "__address__"
+    //     replacement  = "kubernetes.default.svc.cluster.local:443"
+    //   }
+    //   rule {
+    //     source_labels = ["__meta_kubernetes_node_name"]
+    //     regex         = "(.+)"
+    //     target_label  = "__metrics_path__"
+    //     replacement   = "/api/v1/nodes/${1}/proxy/metrics"
+    //   }
+    // }
+    // prometheus.scrape "kubelet" {
+    //   targets           = discovery.relabel.kubelet.output
+    //   scheme            = "https"
+    //   bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    //   tls_config { ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" }
+    //   forward_to = [prometheus.remote_write.default.receiver]
+    // }
+
+    // Prometheus Operator CRDs -- honor existing ServiceMonitors/PodMonitors so
+    // you don't have to re-annotate workloads.
+    // prometheus.operator.servicemonitors "svc" {
+    //   forward_to = [prometheus.remote_write.default.receiver]
+    // }
+    // prometheus.operator.podmonitors "pods" {
+    //   forward_to = [prometheus.remote_write.default.receiver]
+    // }
+
+    // Blackbox probing (HTTP/TCP/ICMP/DNS uptime + latency checks).
+    // prometheus.exporter.blackbox "bb" {
+    //   config = "modules:\n  http_2xx:\n    prober: http"
+    //   target {
+    //     name    = "grafana"
+    //     address = "https://grafana.grafana-dev.svc.cluster.local"
+    //     module  = "http_2xx"
+    //   }
+    // }
+    // prometheus.scrape "blackbox" {
+    //   targets    = prometheus.exporter.blackbox.bb.targets
+    //   forward_to = [prometheus.remote_write.default.receiver]
+    // }
+
+    // Alloy's own internal metrics (self-observability).
+    // prometheus.exporter.self "alloy" { }
+    // prometheus.scrape "alloy_self_metrics" {
+    //   targets    = prometheus.exporter.self.alloy.targets
+    //   forward_to = [prometheus.remote_write.default.receiver]
+    // }
+
+    // ===== TRACES (optional) ===============================================
+
+    // Recommended production processors between receiver and exporter: guard
+    // memory, then batch. To enable, point otelcol.receiver.otlp's output at
+    // otelcol.processor.memory_limiter.default.input instead of the exporter.
+    // otelcol.processor.memory_limiter "default" {
+    //   check_interval         = "1s"
+    //   limit_percentage       = 75
+    //   spike_limit_percentage = 15
+    //   output { traces = [otelcol.processor.batch.default.input] }
+    // }
+    // otelcol.processor.batch "default" {
+    //   output { traces = [otelcol.exporter.otlp.tempo.input] }
+    // }
+
+    // Tail sampling -- keep all error/slow traces, sample the rest.
+    // otelcol.processor.tail_sampling "default" {
+    //   policy { name = "errors",   type = "status_code",   status_code { status_codes = ["ERROR"] } }
+    //   policy { name = "slow",     type = "latency",       latency { threshold_ms = 500 } }
+    //   policy { name = "sample10", type = "probabilistic", probabilistic { sampling_percentage = 10 } }
+    //   output { traces = [otelcol.exporter.otlp.tempo.input] }
+    // }
+
+    // Span metrics + service graph from traces (RED metrics) -> Prometheus.
+    // NOTE: Tempo's metrics-generator already does this -- use one or the other.
+    // otelcol.connector.spanmetrics "default" {
+    //   output { metrics = [otelcol.exporter.prometheus.default.input] }
+    // }
+    // otelcol.connector.servicegraph "default" {
+    //   output { metrics = [otelcol.exporter.prometheus.default.input] }
+    // }
+    // otelcol.exporter.prometheus "default" {
+    //   forward_to = [prometheus.remote_write.default.receiver]
+    // }
+
+    // Route OTLP logs (not just traces) on to Loki.
+    // otelcol.exporter.loki "default" {
+    //   forward_to = [loki.write.default.receiver]
+    // }
+
+    // ===== PROFILES (optional) =============================================
+
+    // Scrape any pod annotated for profiling (pyroscope.io/scrape=true,
+    // pyroscope.io/port=<n>) -- mirrors the metrics-annotation pattern.
+    // discovery.relabel "profiles_pods" {
+    //   targets = discovery.kubernetes.pods.targets
+    //   rule {
+    //     source_labels = ["__meta_kubernetes_pod_annotation_pyroscope_io_scrape"]
+    //     regex  = "true"
+    //     action = "keep"
+    //   }
+    //   rule {
+    //     source_labels = ["__address__", "__meta_kubernetes_pod_annotation_pyroscope_io_port"]
+    //     regex        = "([^:]+)(?::\\d+)?;(\\d+)"
+    //     replacement  = "$1:$2"
+    //     target_label = "__address__"
+    //   }
+    // }
+    // pyroscope.scrape "annotated" {
+    //   targets    = discovery.relabel.profiles_pods.output
+    //   forward_to = [pyroscope.write.default.receiver]
+    // }
+
+    // eBPF whole-node profiling (no app changes). DaemonSet + privileged.
+    // pyroscope.ebpf "node" {
+    //   forward_to = [pyroscope.write.default.receiver]
+    // }
+
+    // Java profiling via async-profiler (attach by PID). DaemonSet + privileged.
+    // pyroscope.java "jvm" {
+    //   targets    = discovery.relabel.profiles_pods.output
+    //   forward_to = [pyroscope.write.default.receiver]
+    // }
+
+    // ===== FRONTEND / OTHER (optional) =====================================
+
+    // Faro receiver: browser/mobile RUM -- JS errors, web vitals, frontend logs
+    // & traces. Point the Faro Web SDK at alloy:12347/collect.
+    // faro.receiver "frontend" {
+    //   server {
+    //     listen_address = "0.0.0.0"
+    //     listen_port    = 12347
+    //   }
+    //   output {
+    //     logs   = [loki.write.default.receiver]
+    //     traces = [otelcol.exporter.otlp.tempo.input]
+    //   }
+    // }
+
+    // Live debugging feed (inspect data flowing through components at :12345).
+    // livedebugging {
+    //   enabled = true
+    // }

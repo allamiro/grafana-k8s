@@ -21,3 +21,130 @@ data:
       - job_name: prometheus
         static_configs:
           - targets: ["localhost:9090"]
+
+    # ===== OPTIONAL / ADVANCED (commented out — uncomment to enable) =====
+    # Everything below is a reference template. It is NOT active. Uncomment and
+    # adjust indentation/values to enable. Merge keys like `global:` into the
+    # existing block above rather than declaring them twice.
+
+    # --- global extras (merge these keys into the `global:` block above) ---
+    # global:
+    #   scrape_timeout: 10s               # max time a single scrape may take (must be <= scrape_interval)
+    #   evaluation_interval: 30s          # how often rules (recording/alerting) are evaluated
+    #   external_labels:                  # labels attached to all series when talking to remote systems / alertmanager
+    #     cluster: docker-desktop
+    #     region: us-east-1
+
+    # --- alerting: where firing alerts are sent (Alertmanager) ---
+    # alerting:
+    #   alertmanagers:
+    #     # Option A: static list of Alertmanager targets
+    #     - static_configs:
+    #         - targets:
+    #             - alertmanager.grafana-dev.svc.cluster.local:9093
+    #     # Option B: discover Alertmanagers via Kubernetes endpoints
+    #     # - kubernetes_sd_configs:
+    #     #     - role: endpoints
+    #     #   relabel_configs:
+    #     #     - source_labels: [__meta_kubernetes_service_name]
+    #     #       regex: alertmanager
+    #     #       action: keep
+
+    # --- rule_files: recording & alerting rules (globs) ---
+    # NOTE: mount the rule files from a separate ConfigMap into the Prometheus
+    # container (e.g. at /etc/prometheus/rules/) and reference them here.
+    # rule_files:
+    #   - /etc/prometheus/rules/*.yml     # recording + alerting rule definitions
+
+    # --- remote_write: ship samples to long-term storage (e.g. Mimir) ---
+    # NOTE: this Prometheus already RECEIVES via --web.enable-remote-write-receiver;
+    # the block below is for PUSHING out to durable storage instead/in addition.
+    # remote_write:
+    #   - url: http://mimir.grafana-dev.svc.cluster.local:9009/api/v1/push
+    #     # headers:
+    #     #   X-Scope-OrgID: anonymous     # Mimir tenant id (multi-tenant setups)
+    #     queue_config:
+    #       capacity: 10000               # in-memory samples buffered per shard
+    #       max_shards: 50                # max parallel sender shards
+    #       min_shards: 1
+    #       max_samples_per_send: 2000    # batch size per request
+    #       batch_send_deadline: 5s       # flush a partial batch after this long
+    #       min_backoff: 30ms             # retry backoff lower bound
+    #       max_backoff: 5s               # retry backoff upper bound
+    #     # write_relabel_configs:        # drop/keep series before sending
+    #     #   - source_labels: [__name__]
+    #     #     regex: go_.*
+    #     #     action: drop
+
+    # --- remote_read: query historical data back from remote storage ---
+    # remote_read:
+    #   - url: http://mimir.grafana-dev.svc.cluster.local:9009/prometheus/api/v1/read
+    #     read_recent: true               # also read recent data (not just older than local retention)
+    #     # headers:
+    #     #   X-Scope-OrgID: anonymous
+
+    # --- extra scrape_configs templates (add under `scrape_configs:` above) ---
+    # NOTE: Alloy currently does all scraping in this stack. These jobs are only
+    # for running Prometheus as a STANDALONE scraper.
+    #
+    #   # Scrape every Kubernetes node's kubelet metrics (role: node)
+    #   - job_name: kubernetes-nodes
+    #     scheme: https
+    #     tls_config:
+    #       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    #       insecure_skip_verify: true
+    #     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    #     kubernetes_sd_configs:
+    #       - role: node
+    #     relabel_configs:
+    #       - action: labelmap             # turn node labels into metric labels
+    #         regex: __meta_kubernetes_node_label_(.+)
+    #
+    #   # Scrape service endpoints, keeping only those annotated for scraping (role: endpoints)
+    #   - job_name: kubernetes-endpoints
+    #     kubernetes_sd_configs:
+    #       - role: endpoints
+    #     relabel_configs:
+    #       - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+    #         action: keep
+    #         regex: "true"
+    #       - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+    #         action: replace
+    #         target_label: __metrics_path__
+    #         regex: (.+)
+    #       - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+    #         action: replace
+    #         target_label: __address__
+    #         regex: ([^:]+)(?::\d+)?;(\d+)
+    #         replacement: $1:$2
+    #       - source_labels: [__meta_kubernetes_namespace]
+    #         target_label: namespace
+    #
+    #   # Scrape annotated pods directly (role: pod)
+    #   - job_name: kubernetes-pods
+    #     kubernetes_sd_configs:
+    #       - role: pod
+    #     relabel_configs:
+    #       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+    #         action: keep
+    #         regex: "true"
+    #       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port, __address__]
+    #         action: replace
+    #         target_label: __address__
+    #         regex: (\d+);([^:]+)(?::\d+)?
+    #         replacement: $2:$1
+    #       - source_labels: [__meta_kubernetes_pod_name]
+    #         target_label: pod
+    #
+    #   # Plain static targets (e.g. an external host exporter)
+    #   - job_name: static-example
+    #     static_configs:
+    #       - targets: ["node-exporter.example.com:9100"]
+    #         labels:
+    #           env: prod
+
+    # --- TSDB / retention ---
+    # Retention is NOT set here; it is a CLI flag on the Prometheus Deployment/args:
+    #   --storage.tsdb.retention.time=15d   # keep local data for 15 days (time-based)
+    #   --storage.tsdb.retention.size=50GB  # or cap by size
+    #   --storage.tsdb.path=/prometheus     # on-disk TSDB location

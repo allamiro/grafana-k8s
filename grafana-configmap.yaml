@@ -59,6 +59,98 @@ data:
     mode = console
     level = info
 
+    ; ===== OPTIONAL / ADVANCED (commented out -- uncomment to enable) =====
+    ; Grafana treats a `;` prefix as "default / disabled". Uncomment and edit
+    ; the lines you need. Values shown are illustrative defaults/examples.
+
+    ; [server]
+    ; enforce_domain = false          ; redirect requests to the configured domain if the Host header differs
+    ; serve_from_sub_path = false     ; serve Grafana under a sub-path of root_url (e.g. /grafana)
+    ; router_logging = false          ; log every HTTP request the router handles (verbose; debugging only)
+
+    ; [database]
+    ; Use an external DB instead of the default embedded SQLite (for HA / multiple replicas).
+    ; type = postgres                 ; postgres | mysql | sqlite3
+    ; host = postgres.grafana-dev.svc.cluster.local:5432
+    ; name = grafana                  ; database/schema name
+    ; user = grafana                  ; DB username (prefer GF_DATABASE_USER env var)
+    ; password =                      ; DB password (prefer GF_DATABASE_PASSWORD env var / secret)
+    ; ssl_mode = require              ; postgres: disable|require|verify-ca|verify-full ; mysql: true|false|skip-verify
+
+    ; [smtp]
+    ; SMTP relay used to send alerting / invite emails.
+    ; enabled = false
+    ; host = smtp.example.com:587
+    ; user =                          ; SMTP username
+    ; password =                      ; SMTP password (prefer env var / secret)
+    ; from_address = grafana@example.com
+    ; from_name = Grafana
+    ; skip_verify = false             ; skip TLS verification of the SMTP server cert
+
+    ; [unified_alerting]
+    ; enabled = true                  ; already enabled above; kept here for reference
+    ; execute_alerts = true           ; evaluate/execute alert rules on this instance (set false on read-only replicas)
+
+    ; [auth]
+    ; disable_login_form = false      ; hide the username/password form (force SSO)
+    ; oauth_auto_login = false        ; skip the login screen and go straight to the OAuth provider
+    ; disable_signout_menu = false    ; hide the sign-out menu item
+
+    ; [auth.generic_oauth]
+    ; Generic OIDC / OAuth2 SSO (Keycloak, Okta, Azure AD, Google, etc.).
+    ; enabled = false
+    ; name = OAuth
+    ; client_id = grafana
+    ; client_secret =                 ; prefer env var / secret
+    ; scopes = openid profile email
+    ; auth_url = https://sso.example.com/realms/main/protocol/openid-connect/auth
+    ; token_url = https://sso.example.com/realms/main/protocol/openid-connect/token
+    ; api_url = https://sso.example.com/realms/main/protocol/openid-connect/userinfo
+    ; allow_sign_up = true            ; auto-create Grafana users on first SSO login
+
+    ; [auth.ldap]
+    ; enabled = false
+    ; config_file = /etc/grafana/ldap.toml   ; path to the LDAP mapping config
+    ; allow_sign_up = true
+
+    ; [auth.anonymous]
+    ; enabled = false                 ; already set to false above; kept here for reference
+    ; org_name = Main Org.            ; org that anonymous users belong to
+    ; org_role = Viewer               ; role granted to anonymous users: Viewer|Editor|Admin
+
+    ; [users]
+    ; auto_assign_org = true          ; add new users to a default org automatically
+    ; auto_assign_org_role = Viewer   ; default role for new users: Viewer|Editor|Admin
+    ; default_theme = dark            ; already set above; kept here for reference (dark|light)
+    ; viewers_can_edit = false        ; let Viewers edit (but not save) dashboards
+
+    ; [security]
+    ; cookie_secure = true            ; already set above; only send session cookie over HTTPS
+    ; strict_transport_security = true               ; send HSTS response headers
+    ; strict_transport_security_max_age_seconds = 86400
+    ; content_security_policy = false ; enable CSP response headers
+    ; content_security_policy_template =              ; custom CSP template when the above is enabled
+    ; disable_gravatar = true         ; do not fetch user avatars from Gravatar
+
+    ; [dataproxy]
+    ; timeout = 30                    ; seconds before a datasource proxy request times out
+    ; keep_alive_seconds = 30         ; keep-alive for outgoing datasource connections
+    ; dialTimeout = 10                ; seconds to establish the datasource connection
+
+    ; [rendering]
+    ; Server-side image/PDF rendering (requires the grafana-image-renderer service).
+    ; server_url = http://renderer.grafana-dev.svc.cluster.local:8081/render
+    ; callback_url = https://grafana.example.com:443/   ; URL the renderer uses to call back into Grafana
+    ; concurrent_render_request_limit = 30
+
+    ; [feature_toggles]
+    ; enable =                        ; space-separated feature toggles to turn on, e.g. "traceToMetrics publicDashboards"
+
+    ; [log]
+    ; mode = console file             ; already "console" above; can log to console, file, or syslog
+    ; level = info                    ; already set above; debug|info|warn|error
+    ; filters =                       ; per-logger level overrides, e.g. "rendering:debug"
+
   # Dashboard provider: loads every *.json in /var/lib/grafana/dashboards
   # (mounted from the grafana-dashboards ConfigMap) into the "Kubernetes"
   # folder, re-scanning every 30s.
@@ -119,3 +211,67 @@ data:
         access: proxy
         url: http://mimir.grafana-dev.svc.cluster.local:9009/prometheus
         editable: true
+      # ===== OPTIONAL EXTRA DATASOURCES (commented out -- uncomment to enable) =====
+      # Loki, Tempo, Pyroscope and Mimir are already provisioned above as active
+      # datasources; only the ones missing from this stack are shown here.
+      #
+      # Alertmanager -- view/manage alerts & silences from Grafana's Alerting UI.
+      # - name: Alertmanager
+      #   type: alertmanager
+      #   uid: alertmanager
+      #   access: proxy
+      #   url: http://alertmanager.grafana-dev.svc.cluster.local:9093
+      #   editable: true
+      #   jsonData:
+      #     # implementation: mimir (Mimir/Cortex) | cortex | prometheus (vanilla Alertmanager)
+      #     implementation: prometheus
+      #     handleGrafanaManagedAlerts: false
+      #
+      # Reference examples of the Loki/Tempo/Pyroscope datasources with the full
+      # set of correlation options, in case you want to extend the active ones above.
+      #
+      # - name: Loki
+      #   type: loki
+      #   uid: loki
+      #   access: proxy
+      #   url: http://loki.grafana-dev.svc.cluster.local:3100
+      #   editable: true
+      #   jsonData:
+      #     # Jump from a log line to the matching trace in Tempo.
+      #     derivedFields:
+      #       - name: TraceID
+      #         matcherRegex: '"traceID":"(\w+)"'
+      #         url: '$${__value.raw}'
+      #         datasourceUid: tempo
+      #
+      # - name: Tempo
+      #   type: tempo
+      #   uid: tempo
+      #   access: proxy
+      #   url: http://tempo.grafana-dev.svc.cluster.local:3200
+      #   editable: true
+      #   jsonData:
+      #     serviceMap:
+      #       datasourceUid: prometheus
+      #     # Trace -> Logs correlation (open Loki logs for a span).
+      #     tracesToLogsV2:
+      #       datasourceUid: loki
+      #       spanStartTimeShift: '-1h'
+      #       spanEndTimeShift: '1h'
+      #       filterByTraceID: true
+      #       filterBySpanID: false
+      #     # Trace -> Metrics correlation (open Prometheus/Mimir metrics for a span).
+      #     tracesToMetrics:
+      #       datasourceUid: prometheus
+      #       spanStartTimeShift: '-1h'
+      #       spanEndTimeShift: '1h'
+      #       queries:
+      #         - name: 'Request rate'
+      #           query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m]))'
+      #
+      # - name: Pyroscope
+      #   type: grafana-pyroscope-datasource
+      #   uid: pyroscope
+      #   access: proxy
+      #   url: http://pyroscope.grafana-dev.svc.cluster.local:4040
+      #   editable: true

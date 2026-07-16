@@ -23,14 +23,37 @@ data:
               endpoint: 0.0.0.0:4317
             http:
               endpoint: 0.0.0.0:4318
+        # --- Additional receiver protocols (uncomment as needed) ---
+        # jaeger:                              # accept Jaeger-format spans
+        #   protocols:
+        #     grpc:
+        #       endpoint: 0.0.0.0:14250        # Jaeger gRPC
+        #     thrift_http:
+        #       endpoint: 0.0.0.0:14268        # Jaeger thrift over HTTP
+        #     thrift_compact:
+        #       endpoint: 0.0.0.0:6831         # Jaeger thrift compact (UDP)
+        #     thrift_binary:
+        #       endpoint: 0.0.0.0:6832         # Jaeger thrift binary (UDP)
+        # zipkin:
+        #   endpoint: 0.0.0.0:9411             # accept Zipkin-format spans
+        # opencensus:
+        #   endpoint: 0.0.0.0:55678            # accept OpenCensus-format spans
 
     ingester:
       max_block_duration: 5m
+      # complete_block_timeout: 15m           # how long to keep a completed block in the ingester before flushing to storage
+      # trace_idle_period: 10s                # how long a trace can be idle before it is cut from the live buffer
+      # max_block_bytes: 524288000            # cut a block once it reaches this size (bytes); default 500MB
 
     compactor:
       compaction:
         # Keep traces for 31 days.
         block_retention: 744h
+        # compacted_block_retention: 1h       # how long to keep source blocks after they have been compacted (before deletion)
+        # compaction_window: 1h               # time window blocks are grouped into for compaction
+        # max_compaction_objects: 6000000     # max number of traces (objects) in a single compacted block
+        # max_block_bytes: 107374182400       # max size of a compacted block (bytes); default 100GB
+        # block_retention: 336h               # shorter 14-day retention example (overrides the active value above if uncommented)
 
     storage:
       trace:
@@ -39,6 +62,35 @@ data:
           path: /var/tempo/traces
         wal:
           path: /var/tempo/wal
+        # pool:
+        #   max_workers: 100                  # parallel workers reading from backend
+        #   queue_depth: 10000
+        # --- S3-compatible object storage (e.g. RustFS / MinIO / AWS S3) ---
+        # Mirrors the Mimir + RustFS (S3-over-TLS) pattern. To enable, set
+        # backend: s3 above (comment out backend: local and the local: block).
+        # backend: s3
+        # s3:
+        #   endpoint: rustfs.grafana-dev.svc.cluster.local:9000   # host:port of the S3 API
+        #   bucket: tempo-traces                                  # bucket must already exist
+        #   access_key: ${RUSTFS_ACCESS_KEY}                      # from the rustfs-secret Secret
+        #   secret_key: ${RUSTFS_SECRET_KEY}
+        #   insecure: false                                       # false = use HTTPS/TLS
+        #   forcepathstyle: true                                  # required by MinIO/RustFS
+        #   # RustFS serves TLS with a self-signed cert; trust its CA
+        #   # (mounted from the rustfs-tls Secret).
+        #   tls_ca_path: /etc/rustfs-ca/ca.crt
+        #   # tls_insecure_skip_verify: true                      # dev-only: skip cert verification instead
+        #   # region: us-east-1
+        # --- Google Cloud Storage ---
+        # backend: gcs
+        # gcs:
+        #   bucket_name: tempo-traces                             # GCS bucket (uses workload identity / GOOGLE_APPLICATION_CREDENTIALS)
+        # --- Azure Blob Storage ---
+        # backend: azure
+        # azure:
+        #   container_name: tempo-traces                          # Azure blob container
+        #   storage_account_name: ${AZURE_ACCOUNT_NAME}
+        #   storage_account_key: ${AZURE_ACCOUNT_KEY}
 
     # Generates RED metrics + service graphs from spans and remote-writes
     # them to Prometheus (powers Grafana's service map).
@@ -47,10 +99,37 @@ data:
         external_labels:
           source: tempo
           cluster: docker-desktop   # CHANGE for production
+        # collection_interval: 15s          # how often generated metrics are sampled
+        # stale_duration: 15m               # drop series not updated within this window
       storage:
         path: /var/tempo/generator/wal
         remote_write:
           - url: http://prometheus.grafana-dev.svc.cluster.local:9090/api/v1/write
+            # send_exemplars: true          # attach trace exemplars to metrics
+            # headers:
+            #   X-Scope-OrgID: anonymous    # tenant header when remote-writing to Mimir
+        # remote_write_flush_deadline: 1m
+        # --- Alternative: remote-write to Mimir instead of Prometheus ---
+        # remote_write:
+        #   - url: http://mimir.grafana-dev.svc.cluster.local:9009/api/v1/push
+        #     headers:
+        #       X-Scope-OrgID: anonymous
+      # --- Per-processor tuning (uncomment to override defaults) ---
+      # processor:
+      #   service_graphs:
+      #     histogram_buckets: [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8]
+      #     dimensions: []                  # extra span attributes to add as metric labels
+      #     max_items: 10000                # in-flight edges tracked for the service graph
+      #   span_metrics:
+      #     histogram_buckets: [0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.024, 2.048, 4.096, 8.192, 16.384]
+      #     dimensions: []                  # extra span attributes to add as metric labels
+      #     intrinsic_dimensions:
+      #       service: true
+      #       span_name: true
+      #       span_kind: true
+      #       status_code: true
+      #   local_blocks:
+      #     flush_to_storage: true          # persist local-blocks (required for TraceQL metrics queries)
 
     overrides:
       defaults:
@@ -58,6 +137,61 @@ data:
           processors:
             - service-graphs
             - span-metrics
+            # - local-blocks              # enable for TraceQL metrics / span-level queries
+          # collection_interval: 15s
+        # --- Ingestion / rate limits (uncomment to override) ---
+        # ingestion:
+        #   rate_limit_bytes: 15000000     # per-tenant ingestion rate limit (bytes/sec)
+        #   burst_size_bytes: 20000000     # per-tenant ingestion burst (bytes)
+        #   max_traces_per_user: 10000     # max live traces held per tenant before rejecting
+        # global:
+        #   max_bytes_per_trace: 5000000   # reject a single trace larger than this (bytes)
+        # read:
+        #   max_bytes_per_tag_values_query: 5000000
+      # --- Per-tenant overrides (keyed by X-Scope-OrgID) ---
+      # per_tenant_override_config: /conf/overrides.yaml
+
+    # ===== OPTIONAL / ADVANCED (commented out -- uncomment to enable) =====
+    # The blocks below are not active. They document the most commonly-needed
+    # Tempo options so they can be turned on later without hunting the docs.
+    # Keep the leading '#' on every line; uncomment a whole block to use it.
+    #
+    # --- Querier: how queries fan out to ingesters / the read path ---
+    # querier:
+    #   max_concurrent_queries: 20            # queries this querier runs in parallel
+    #   search:
+    #     query_timeout: 30s                  # per-query timeout for search
+    #     prefer_self: 10                     # blocks a querier processes itself before offloading
+    #     external_endpoints: []              # serverless backends for search (e.g. GCP Cloud Run)
+    #   trace_by_id:
+    #     query_timeout: 10s                  # per-query timeout for trace-by-ID lookups
+    #   frontend_worker:
+    #     frontend_address: tempo:9096        # address of the query-frontend gRPC (microservices mode)
+    #
+    # --- Query frontend: splits/queues incoming queries ---
+    # query_frontend:
+    #   max_outstanding_per_tenant: 2000      # max queued queries per tenant
+    #   max_retries: 2                        # retries for a failed query shard
+    #   search:
+    #     concurrent_jobs: 1000               # parallel jobs a single search is split into
+    #     target_bytes_per_job: 104857600     # data scanned per split job (bytes)
+    #     max_duration: 168h                  # widest time range a search may span
+    #     default_result_limit: 20            # default number of traces returned
+    #     max_result_limit: 0                 # cap on results (0 = unlimited)
+    #   trace_by_id:
+    #     query_shards: 50                    # shards a trace-by-ID lookup is split into
+    #     hedge_requests_at: 2s               # send a duplicate request if a shard is slower than this
+    #
+    # --- Multitenancy / cache (optional) ---
+    # multitenancy_enabled: false             # require X-Scope-OrgID header on all requests
+    # cache:
+    #   background:
+    #     writeback_goroutines: 10
+    #   caches:
+    #     - roles: [parquet-footer, bloom, frontend-search]
+    #       memcached:
+    #         host: memcached.grafana-dev.svc.cluster.local:11211
+    # ======================================================================
 
     usage_report:
       reporting_enabled: false
