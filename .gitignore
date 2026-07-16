@@ -5,3 +5,8 @@ grafana-dev-mimir/certs-out/
 *.crt
 *.csr
 *.srl
+
+# Saved container images (air-gap bundles). Hundreds of MB each -- GitHub
+# rejects files >100MB. Rebuild them with the image-save script instead.
+images/*.tar.gz
+images/*.tar

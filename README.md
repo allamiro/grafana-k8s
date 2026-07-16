@@ -667,7 +667,7 @@ Both swaps are pre-written as comments: the `remote_write` URL in
 
 ```bash
 kubectl delete namespace grafana-dev
-kubectl delete clusterrole alloy clusterrolebinding alloy
+kubectl delete clusterrole/alloy clusterrolebinding/alloy
 ```
 
 ## License
