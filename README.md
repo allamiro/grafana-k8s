@@ -394,6 +394,66 @@ kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml
 kubectl apply -f grafana-dev-mimir/
 ```
 
+### TLS certs for RustFS (what `generate-rustfs-certs.sh` does)
+
+RustFS serves its S3 endpoint over TLS, so Mimir connects to it with `https`.
+The [generate-rustfs-certs.sh](grafana-dev-mimir/generate-rustfs-certs.sh) script
+automates the four steps below for **dev**; for **production** run the same
+steps with your real CA. RustFS requires the files to be named **exactly**
+`rustfs_cert.pem` and `rustfs_key.pem`.
+
+**Step 1 — self-signed CA** (skip in production; use your real CA instead):
+
+```bash
+openssl genrsa -out ca.key 4096
+openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 \
+  -subj "/O=RustFS Dev/CN=RustFS Dev CA" -out ca.crt
+```
+
+**Step 2 — server key + CSR** for the in-cluster service name:
+
+```bash
+openssl genrsa -out rustfs_key.pem 2048
+openssl req -new -key rustfs_key.pem \
+  -subj "/CN=rustfs.grafana-dev.svc.cluster.local" -out rustfs.csr
+```
+
+**Step 3 — write the SAN config** (`.cnf` extfile) and sign the cert. The SANs
+are what clients validate, so they must cover every name Mimir uses to reach
+RustFS. Create `san.cnf`:
+
+```ini
+subjectAltName   = DNS:rustfs, DNS:rustfs.grafana-dev, DNS:rustfs.grafana-dev.svc, DNS:rustfs.grafana-dev.svc.cluster.local, DNS:localhost, IP:127.0.0.1
+extendedKeyUsage = serverAuth
+```
+
+Then sign with it:
+
+```bash
+openssl x509 -req -in rustfs.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -days 825 -sha256 -extfile san.cnf -out rustfs_cert.pem
+```
+
+**Step 4 — load the `rustfs-tls` Secret** (RustFS mounts the cert/key; Mimir
+mounts `ca.crt` to trust it):
+
+```bash
+kubectl -n grafana-dev create secret generic rustfs-tls \
+  --from-file=rustfs_cert.pem=rustfs_cert.pem \
+  --from-file=rustfs_key.pem=rustfs_key.pem \
+  --from-file=ca.crt=ca.crt \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Change the namespace or validity with the `NAMESPACE` / `DAYS` env vars the
+script honours (defaults `grafana-dev` / `825`). Dev outputs land in the
+git-ignored `grafana-dev-mimir/certs-out/`.
+
+> **Production:** in Step 1 skip the self-signed CA and submit `rustfs.csr`
+> (Step 2) to your real CA. Build the full chain the same way as the Grafana
+> cert (see [TLS in production](#tls-in-production-certs-chain-cnf)) and load it
+> into `rustfs-tls` with the same three key names above.
+
 ### How a metric reaches Grafana — every component
 
 ```mermaid
