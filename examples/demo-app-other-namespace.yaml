@@ -1,0 +1,52 @@
+# Demo workload in a SEPARATE namespace, to prove Alloy collects logs from
+# every namespace (not just grafana-dev). It just prints a line every 2s.
+#
+#   kubectl apply -f examples/demo-app-other-namespace.yaml
+#   # then in Grafana Explore (Loki):  {namespace="demo"}
+#
+#   kubectl delete -f examples/demo-app-other-namespace.yaml   # clean up
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-generator
+  namespace: demo
+  labels:
+    app: log-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: log-generator
+  template:
+    metadata:
+      labels:
+        app: log-generator        # becomes the `app` label in Loki
+    spec:
+      containers:
+        - name: log-generator
+          image: busybox:1.36
+          # Emit a timestamped line every 2 seconds to stdout, which the
+          # kubelet captures and Alloy ships to Loki — no app changes needed.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              i=0
+              while true; do
+                i=$((i+1))
+                echo "$(date -u +%FT%TZ) demo log line #$i from the demo namespace"
+                sleep 2
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

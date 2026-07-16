@@ -229,6 +229,66 @@ Apps **outside** any cluster (VMs, bare metal): run Alloy on the host with
 [examples/alloy-external.alloy](examples/alloy-external.alloy) — file logs,
 host metrics, OTLP traces, and pprof profiles to the same backends.
 
+### Logs from other namespaces (all namespaces, by default)
+
+You do **not** deploy anything per namespace. The shipped setup already collects
+logs from **every namespace** cluster-wide:
+
+- `discovery.kubernetes "pods" { role = "pod" }` in
+  [alloy-configmap.yaml](alloy-configmap.yaml) has **no namespace filter**, so it
+  discovers pods in all namespaces.
+- The `alloy` **ClusterRole**/**ClusterRoleBinding** in
+  [alloy-rbac.yaml](alloy-rbac.yaml) grant `pods` + `pods/log` cluster-wide —
+  that's what actually authorizes reading logs outside `grafana-dev`. (A
+  namespaced `Role` would silently limit Alloy to its own namespace.)
+
+Every line is labelled with its `namespace`, `pod`, `container`, `node`, and
+`app`, so in Grafana you select any namespace with LogQL:
+
+```logql
+{namespace="kube-system"}          # control-plane / system pods
+{namespace="my-app"}               # your app
+{namespace=~"team-.*"}             # regex across many namespaces
+{namespace="my-app", app="api"}    # narrow by the app label
+```
+
+**Prove it end to end** — deploy a log generator in a brand-new `demo`
+namespace and watch it show up:
+
+```bash
+kubectl apply -f examples/demo-app-other-namespace.yaml
+# Grafana -> Explore -> Loki:   {namespace="demo"}
+kubectl delete -f examples/demo-app-other-namespace.yaml   # clean up
+```
+
+**Want only specific namespaces?** Add a `namespaces` block to the discovery so
+Alloy watches just those (lighter on the API server on big clusters):
+
+```alloy
+discovery.kubernetes "pods" {
+  role = "pod"
+  namespaces {
+    names = ["my-app", "team-a", "kube-system"]
+  }
+}
+```
+
+**Want everything except a few noisy namespaces?** Keep the cluster-wide
+discovery and drop the unwanted ones with a relabel rule in
+`discovery.relabel "pod_logs"`:
+
+```alloy
+rule {
+  source_labels = ["__meta_kubernetes_namespace"]
+  regex         = "kube-system|kube-node-lease"
+  action        = "drop"
+}
+```
+
+Both approaches work identically in DaemonSet (file) mode — the same
+`namespaces` block / namespace relabel applies to `loki.source.kubernetes` and
+to the file-discovery relabels.
+
 ## Collecting metrics, traces, and profiles from your apps
 
 ### cadvisor (container metrics) — nothing to deploy

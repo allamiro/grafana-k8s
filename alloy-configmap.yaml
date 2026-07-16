@@ -28,6 +28,12 @@ data:
 
     discovery.kubernetes "pods" {
       role = "pod"
+      // Collects from EVERY namespace by default (cluster-wide RBAC in
+      // alloy-rbac.yaml authorizes it). To restrict to specific namespaces,
+      // uncomment and list them:
+      //   namespaces {
+      //     names = ["my-app", "team-a", "kube-system"]
+      //   }
     }
 
     discovery.relabel "pod_logs" {
