@@ -1,0 +1,48 @@
+!!! PULL FAILED: amazon/aws-cli:latest
+busybox:1.36
+  digest: docker.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+  file:   busybox_1.36.tar.gz (2.3M)
+
+ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+  digest: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen@sha256:15845600ee843c3f1747ea1146ebe1498df6244e79bf981342b816242f26b4f3
+  file:   ghcr.io_open-telemetry_opentelemetry-collector-contrib_telemetrygen_latest.tar.gz (13M)
+
+!!! PULL FAILED: grafana/alloy:latest
+grafana/grafana:latest
+  digest: docker.io/grafana/grafana@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63
+  file:   grafana_grafana_latest.tar.gz (401M)
+
+grafana/loki:latest
+  digest: docker.io/grafana/loki@sha256:70b9f699fc9bb868b62f1cfd4f787dfa50242f1fd92e6089787d5d7daea75fe8
+  file:   grafana_loki_latest.tar.gz (51M)
+
+grafana/mimir:latest
+  digest: docker.io/grafana/mimir@sha256:39cc23910bbaa60d0280fd162265a22c39120ff61b02bc993f3fd3701fb8606d
+  file:   grafana_mimir_latest.tar.gz (39M)
+
+grafana/pyroscope:latest
+  digest: docker.io/grafana/pyroscope@sha256:9821835c3366c07c8a7d66008f1745bd501b4a5114ff682a8a775225938e237f
+  file:   grafana_pyroscope_latest.tar.gz (61M)
+
+grafana/tempo:2.8.1
+  digest: docker.io/grafana/tempo@sha256:bc9245fe3da4e63dc4c6862d9c2dad9bcd8be13d0ba4f7705fa6acda4c904d0e
+  file:   grafana_tempo_2.8.1.tar.gz (37M)
+
+!!! PULL FAILED: prom/prometheus:latest
+!!! PULL FAILED: rustfs/rustfs:latest
+rustfs/rustfs:latest
+  digest: docker.io/rustfs/rustfs@sha256:7b0db8255ac67ba0d8d75ff76738908d9f3afc8729ac6a9dbb18a1c434d5d280
+  file:   rustfs_rustfs_latest.tar.gz (87M)
+
+prom/prometheus:latest
+  digest: docker.io/prom/prometheus@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
+  file:   prom_prometheus_latest.tar.gz (108M)
+
+grafana/alloy:latest
+  digest: docker.io/grafana/alloy@sha256:4f6ddc56ffdcf8a6316748fc5162972e20cb301523cac1bb4a31957df733ae9b
+  file:   grafana_alloy_latest.tar.gz (167M)
+
+amazon/aws-cli:latest
+  digest: docker.io/amazon/aws-cli@sha256:4929f0e113722f4c16d655a78f65eb97c901bbcb6e82ebd673550934202f02f9
+  file:   amazon_aws-cli_latest.tar.gz (148M)
+
