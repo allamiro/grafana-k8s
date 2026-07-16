@@ -10,3 +10,9 @@ grafana-dev-mimir/certs-out/
 # rejects files >100MB. Rebuild them with the image-save script instead.
 images/*.tar.gz
 images/*.tar
+
+# Downloaded packages (air-gap installs). Binaries -- refetch with
+# ./packages/fetch-packages.sh; only the script + manifest are tracked.
+packages/tarball/
+packages/rpm/
+packages/windows/

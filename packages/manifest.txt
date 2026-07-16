@@ -1,0 +1,18 @@
+COMPONENT            VERSION    VERIFIED     FILE
+---------            -------    --------     ----
+prometheus           3.13.1     sha256 OK    tarball/prometheus-3.13.1.linux-amd64.tar.gz
+node_exporter        1.12.1     sha256 OK    tarball/node_exporter-1.12.1.linux-amd64.tar.gz
+snmp_exporter        0.30.1     sha256 OK    tarball/snmp_exporter-0.30.1.linux-amd64.tar.gz
+blackbox_exporter    0.28.0     sha256 OK    tarball/blackbox_exporter-0.28.0.linux-amd64.tar.gz
+alertmanager         0.33.1     sha256 OK    tarball/alertmanager-0.33.1.linux-amd64.tar.gz
+pushgateway          1.11.3     sha256 OK    tarball/pushgateway-1.11.3.linux-amd64.tar.gz
+
+prometheus           3.13.1-1   digests OK   rpm/prometheus-3.13.1-1.el9.x86_64.rpm
+node-exporter        1.11.1-1   digests OK   rpm/node-exporter-1.11.1-1.el9.x86_64.rpm
+alertmanager         0.33.0-1   digests OK   rpm/alertmanager-0.33.0-1.el9.x86_64.rpm
+
+windows_exporter     0.31.7     -            windows/windows_exporter-0.31.7-amd64.msi
+windows_exporter     0.31.7     -            windows/windows_exporter-0.31.7-amd64.exe
+
+Fetched: 2026-07-16T09:35:36Z   Source: github releases (upstream) + EPEL 9
+NOTE: snmp_exporter and blackbox_exporter are NOT packaged in EPEL -- tarball only.
