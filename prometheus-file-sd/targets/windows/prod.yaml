@@ -1,0 +1,21 @@
+# windows_exporter targets (default port 9182).
+#
+# Each "- targets: / labels:" block is a TARGET GROUP; a file may hold many.
+# Labels here are attached to every target in that group.
+#
+# Adding a host = edit this file. NO Prometheus reload/restart needed.
+
+- targets:
+    - 'win1.example.com:9182'
+    - 'win2.example.com:9182'
+  labels:
+    env: prod
+    site: dc1
+    role: domain-controller
+
+- targets:
+    - 'win10.example.com:9182'
+  labels:
+    env: prod
+    site: dc2
+    role: file-server

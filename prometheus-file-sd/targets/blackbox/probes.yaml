@@ -1,0 +1,32 @@
+# Blackbox exporter targets.
+#
+# `targets` are the URLs/hosts being PROBED, not the exporter. The job's
+# relabel_configs rewrite __address__ to the blackbox_exporter and set
+# instance = the probed target.
+#
+# __param_module picks the probe module per target, so http/icmp/tcp all live
+# in ONE job. `probe_type` is a real (non-__) label: keep it if you ever want
+# to filter panels the way separate job names used to.
+
+- targets:
+    - 'https://a.example.com'
+    - 'https://b.example.com'
+  labels:
+    __param_module: http_2xx
+    probe_type: http
+    team: web
+
+- targets:
+    - '10.0.0.1'
+    - '10.0.0.2'
+  labels:
+    __param_module: icmp
+    probe_type: icmp
+    team: network
+
+- targets:
+    - 'db1.example.com:5432'
+  labels:
+    __param_module: tcp_connect
+    probe_type: tcp
+    team: platform

@@ -39,6 +39,7 @@ directory). Each app has its own `<app>-configmap.yaml` /
 | [certs/openssl.cnf](certs/openssl.cnf) | OpenSSL config (SANs, key usage) for the Grafana cert — used by the dev script and reusable for production CSRs. |
 | [certs/generate-certs.sh](certs/generate-certs.sh) | Self-signed CA + full-chain cert → `grafana-tls` Secret (dev/simulation). |
 | [examples/alloy-external.alloy](examples/alloy-external.alloy) | Collect from hosts **outside** Kubernetes (VMs, bare metal). |
+| [prometheus-file-sd/](prometheus-file-sd/) | **Dynamic Prometheus targets** — migrate big `static_configs` (Windows/SNMP/blackbox) to `file_sd` without redoing dashboards. |
 | [examples/alloy-logs-daemonset-tanzu.yaml](examples/alloy-logs-daemonset-tanzu.yaml) | Production per-node log collection (DaemonSet). |
 | [grafana-dev-mimir/](grafana-dev-mimir/) | Optional standalone Mimir (own PVC included). |
 

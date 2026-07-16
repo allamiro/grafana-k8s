@@ -1,0 +1,20 @@
+# node_exporter targets (default port 9100).
+#
+# The FILENAME is the group: the 'linux' job derives env="prod" from
+# "prod.yaml" via __meta_filepath (see prometheus-jobs.yaml). Adding an
+# environment = adding targets/linux/<env>.yaml -- no job changes.
+#
+# Why filename and not a subdirectory? file_sd only allows a glob in the LAST
+# path segment, so 'linux/*/*.yaml' is rejected by Prometheus. To use nested
+# directories you must list each one explicitly in `files:`.
+
+- targets:
+    - 'app1.example.com:9100'
+    - 'app2.example.com:9100'
+  labels:
+    role: app
+
+- targets:
+    - 'db1.example.com:9100'
+  labels:
+    role: database

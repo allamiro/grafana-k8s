@@ -1,0 +1,113 @@
+# Ready-to-copy scrape_configs using file_sd. Paste these into the
+# `scrape_configs:` list of your prometheus.yml (see ./README.md).
+#
+# MIGRATION RULE: keep `job_name` and whatever `instance` resolves to identical
+# to your current config, and no dashboard will break. Change ONLY the
+# discovery block (static_configs -> file_sd_configs) in the first pass.
+
+scrape_configs:
+  ###########################################################################
+  # A. Direct exporters (windows / node) -- the target IS the thing scraped,
+  #    so `instance` defaults to __address__. Nothing to preserve manually.
+  ###########################################################################
+
+  - job_name: 'windows'
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/windows/*.yaml
+        refresh_interval: 30s
+
+  - job_name: 'linux'
+    file_sd_configs:
+      # NOTE: file_sd allows a glob ONLY in the LAST path segment -- a nested
+      # pattern like 'linux/*/*.yaml' is rejected by Prometheus at load time
+      # ("path name ... is not valid for file discovery"). So either encode the
+      # group in the FILENAME (below), or list each directory explicitly:
+      #   - files:
+      #       - /etc/prometheus/targets/linux/prod/*.yaml
+      #       - /etc/prometheus/targets/linux/dev/*.yaml
+      - files:
+          - /etc/prometheus/targets/linux/*.yaml     # prod.yaml, dev.yaml, ...
+        refresh_interval: 30s
+    relabel_configs:
+      # Filename -> label. targets/linux/prod.yaml  =>  env="prod"
+      - source_labels: [__meta_filepath]
+        regex: '.*/linux/([^/]+)\.yaml'
+        target_label: env
+
+  ###########################################################################
+  # B. SNMP exporter -- the target is the DEVICE; __address__ is rewritten to
+  #    the exporter. KEEP these relabel_configs exactly: they are what makes
+  #    `instance` the device address (dropping them is THE dashboard-breaker).
+  #    Per-device module comes from a __param_module label in the target file.
+  ###########################################################################
+
+  - job_name: 'snmp'
+    metrics_path: /snmp
+    # params:
+    #   module: [if_mib]        # optional job-wide default; a __param_module
+    #                           # label on a target overrides it per device.
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/snmp/*.yaml
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance          # instance = the device
+      - target_label: __address__
+        replacement: snmp-exporter:9116 # CHANGE: your snmp_exporter address
+
+  ###########################################################################
+  # C. Blackbox exporter -- same shape as SNMP. One job for every module,
+  #    selected per-target with __param_module.
+  #
+  #    NOTE: if you currently run blackbox_http / blackbox_icmp / blackbox_tcp
+  #    as separate jobs, collapsing them into this single 'blackbox' job
+  #    CHANGES the `job` label and WILL break dashboards filtering on it.
+  #    First pass: keep one job per module (see D). Collapse later, on purpose.
+  ###########################################################################
+
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/blackbox/*.yaml
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance          # instance = the probed URL/host
+      - target_label: __address__
+        replacement: blackbox-exporter:9115  # CHANGE: your blackbox address
+
+  ###########################################################################
+  # D. Dashboard-safe variant: keep your EXISTING per-module job names while
+  #    still getting dynamic targets. Use this for the first migration pass.
+  ###########################################################################
+
+  # - job_name: 'blackbox_icmp'         # same job_name you have today
+  #   metrics_path: /probe
+  #   params:
+  #     module: [icmp]
+  #   file_sd_configs:
+  #     - files: ['/etc/prometheus/targets/blackbox/icmp/*.yaml']
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: __param_target
+  #     - source_labels: [__param_target]
+  #       target_label: instance
+  #     - target_label: __address__
+  #       replacement: blackbox-exporter:9115
+
+  ###########################################################################
+  # E. http_sd -- no files at all; Prometheus polls your inventory/CMDB API.
+  #    The endpoint returns: [{"targets":["h:9182"],"labels":{"env":"prod"}}]
+  ###########################################################################
+
+  # - job_name: 'windows'
+  #   http_sd_configs:
+  #     - url: https://cmdb.example.com/prometheus/windows
+  #       refresh_interval: 60s

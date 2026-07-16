@@ -1,0 +1,31 @@
+# SNMP exporter targets.
+#
+# IMPORTANT: `targets` here are the DEVICES, not the exporter. The job's
+# relabel_configs rewrite __address__ to the snmp_exporter and set
+# instance = the device address.
+#
+# __param_module selects the SNMP module PER DEVICE -- this is what lets one
+# 'snmp' job replace a job-per-module sprawl. Labels starting with __ are
+# consumed during relabeling and dropped afterwards, so they add no series.
+
+- targets:
+    - '192.168.1.1'
+    - '192.168.1.2'
+  labels:
+    __param_module: if_mib          # interface counters
+    site: dc1
+    role: access-switch
+
+- targets:
+    - '192.168.9.9'
+  labels:
+    __param_module: cisco_wlc       # different module, same job
+    site: dc2
+    role: wlc
+
+# Devices needing a non-default SNMP community/auth use a separate module
+# defined in snmp.yml, selected the same way:
+# - targets: ['10.10.0.5']
+#   labels:
+#     __param_module: if_mib_v3
+#     site: dc3
