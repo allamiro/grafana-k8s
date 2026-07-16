@@ -394,6 +394,71 @@ kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml
 kubectl apply -f grafana-dev-mimir/
 ```
 
+### How a metric reaches Grafana — every component
+
+```mermaid
+flowchart LR
+    subgraph sources["metric sources (any namespace)"]
+        APP["your app<br/>/metrics (annotated<br/>prometheus.io/scrape)"]
+        CAD["kubelet cadvisor<br/>container CPU/mem/net"]
+    end
+
+    ALLOY["Alloy<br/>prometheus.scrape +<br/>prometheus.remote_write"]
+
+    subgraph store["grafana-dev namespace"]
+        MIMIR["Mimir — monolithic (target: all)<br/>:9009 /api/v1/push  (ingest)<br/>:9009 /prometheus  (query)"]
+        PVC[("Mimir PVC<br/>WAL + cache only")]
+        subgraph rustfs["RustFS — S3-compatible, TLS :9000"]
+            B1[("bucket: mimir-blocks")]
+            B2[("bucket: mimir-ruler")]
+        end
+        SEC["Secret: rustfs-credentials<br/>(access-key / secret-key)"]
+        JOB["Job: rustfs-create-buckets"]
+        GRAF["Grafana :443 (HTTPS)"]
+    end
+
+    APP -->|scraped every 30s| ALLOY
+    CAD -->|scraped every 30s| ALLOY
+    ALLOY -->|remote_write| MIMIR
+    MIMIR -->|recent samples in WAL/head| PVC
+    MIMIR -->|flush TSDB blocks, S3 PUT over TLS| B1
+    MIMIR -->|rule state| B2
+    GRAF -->|PromQL via /prometheus| MIMIR
+    JOB -.->|creates buckets on first deploy| rustfs
+    SEC -.->|S3 creds| MIMIR
+    SEC -.->|S3 creds| rustfs
+    SEC -.->|S3 creds| JOB
+```
+
+Step by step, a single sample's journey:
+
+1. **Produce** — a metric originates either from *your app* (it exposes
+   `/metrics` and the pod is annotated `prometheus.io/scrape: "true"`, any
+   namespace) or from the *kubelet's built-in cadvisor* (container CPU / memory
+   / network — nothing to deploy).
+2. **Collect** — the single **Alloy** agent scrapes both every 30s
+   (`prometheus.scrape` in [alloy-configmap.yaml](alloy-configmap.yaml)) and
+   tags samples with `cluster` external labels.
+3. **Ship** — Alloy `remote_write`s to **Mimir** at
+   `:9009/api/v1/push`. This is the *same* wire protocol Prometheus uses, so
+   switching stores is just a URL change — the shipped config **dual-writes**
+   to Prometheus *and* Mimir; delete one `endpoint` block to keep a single store.
+4. **Ingest** — Mimir runs **monolithic** (`target: all` — all its internal
+   components in one process) and accepts the write on `:9009`, holding recent
+   samples in its head/WAL on the local **Mimir PVC** (fast, short-lived; *not*
+   the long-term home).
+5. **Persist** — Mimir periodically compacts the head into TSDB **blocks** and
+   flushes them to the **`mimir-blocks`** bucket in **RustFS** over S3/**TLS**
+   (`:9000`). Credentials come from the shared **`rustfs-credentials`** Secret;
+   the **`rustfs-create-buckets`** Job creates the buckets on first deploy. This
+   is the durable, grow-independently store — the whole point of using Mimir.
+6. **Query** — Grafana's Mimir datasource sends **PromQL** to
+   `:9009/prometheus`. Mimir transparently answers from the head (PVC) for
+   recent data and from blocks (RustFS) for older data — the caller never knows
+   which.
+7. **Visualize** — the same dashboards in [dashboards/](dashboards/) render the
+   result; only the datasource behind them changed.
+
 Its in-cluster links:
 
 | Use | URL |
