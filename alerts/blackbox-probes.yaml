@@ -1,0 +1,122 @@
+# Endpoint probes -- blackbox_exporter (exporter on :9115)
+#
+# Metric names VERIFIED by running blackbox_exporter 0.28.0 and probing a real
+# HTTPS endpoint. Full probe_* set observed:
+#   probe_success, probe_duration_seconds, probe_http_status_code,
+#   probe_http_duration_seconds, probe_http_version, probe_http_redirects,
+#   probe_http_content_length, probe_ssl_earliest_cert_expiry,
+#   probe_ssl_last_chain_expiry_timestamp_seconds, probe_ssl_last_chain_info,
+#   probe_tls_version_info, probe_tls_cipher_info, probe_dns_lookup_time_seconds,
+#   probe_failed_due_to_regex, probe_ip_addr_hash, probe_ip_protocol, probe_http_ssl
+#
+# With the file_sd setup, `instance` is the PROBED URL/host and __address__ is
+# the exporter. `probe_type` is our own label (see targets/blackbox/probes.yaml).
+groups:
+  - name: blackbox-probes
+    rules:
+      - alert: ProbeFailed
+        expr: probe_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Probe failing: {{ $labels.instance }}"
+          description: "blackbox probe ({{ $labels.probe_type }}) has failed for 5m."
+
+      - alert: ProbeSlow
+        expr: probe_duration_seconds > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow probe: {{ $labels.instance }}"
+          description: "Probe took {{ $value | printf \"%.2f\" }}s (>5s)."
+
+      # Unexpected HTTP status. `probe_http_status_code == 0` means the request
+      # never completed -- ProbeFailed already covers that, so exclude it here.
+      - alert: ProbeHttpUnexpectedStatus
+        expr: |
+          probe_http_status_code != 0 and probe_http_status_code >= 400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP {{ $value }} from {{ $labels.instance }}"
+          description: "Endpoint returned {{ $value }}."
+
+      # --- TLS expiry: the classic 3am outage -----------------------------
+      # probe_ssl_earliest_cert_expiry is a UNIX TIMESTAMP, not a duration.
+      - alert: SSLCertExpiringIn30Days
+        expr: |
+          probe_ssl_earliest_cert_expiry - time() < 30 * 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS cert for {{ $labels.instance }} expires in <30d"
+          description: "Expires in {{ $value | humanizeDuration }}."
+
+      - alert: SSLCertExpiringIn7Days
+        expr: |
+          probe_ssl_earliest_cert_expiry - time() < 7 * 24 * 3600
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "TLS cert for {{ $labels.instance }} expires in <7d"
+          description: "Expires in {{ $value | humanizeDuration }}."
+
+      - alert: SSLCertExpired
+        expr: probe_ssl_earliest_cert_expiry - time() <= 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TLS cert for {{ $labels.instance }} has EXPIRED"
+
+      # Catches a chain where the leaf is fine but an intermediate expires first
+      # -- the failure mode documented in grafana-dev-mimir/README.md.
+      - alert: SSLChainExpiringSoon
+        expr: |
+          probe_ssl_last_chain_expiry_timestamp_seconds - time() < 7 * 24 * 3600
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "TLS chain for {{ $labels.instance }} expires in <7d"
+          description: "Some cert in the chain expires in {{ $value | humanizeDuration }}."
+
+      - alert: ProbeContentMismatch
+        expr: probe_failed_due_to_regex == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Content check failed for {{ $labels.instance }}"
+          description: "Endpoint responded but the body did not match the expected regex."
+
+      - alert: ProbeSlowDNS
+        expr: probe_dns_lookup_time_seconds > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow DNS for {{ $labels.instance }}"
+          description: "Lookup took {{ $value | printf \"%.2f\" }}s."
+
+      # ⚠️ ICMP probes need raw sockets. If every icmp probe fails while http
+      # works, the exporter lacks CAP_NET_RAW:
+      #   tarball: setcap cap_net_raw+ep /usr/local/bin/blackbox_exporter
+      #   RPM:     systemctl edit blackbox_exporter -> AmbientCapabilities=CAP_NET_RAW
+      # (Some hosts allow unprivileged ICMP via net.ipv4.ping_group_range, which
+      #  is why this can work on one box and fail on another.)
+      - alert: ICMPProbesAllFailing
+        expr: |
+          count(probe_success{probe_type="icmp"} == 0) == count(probe_success{probe_type="icmp"})
+          and count(probe_success{probe_type="icmp"}) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Every ICMP probe is failing"
+          description: "All icmp probes down at once -- suspect missing CAP_NET_RAW on blackbox_exporter, not a real outage."

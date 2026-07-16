@@ -51,10 +51,20 @@ data:
     #     #       action: keep
 
     # --- rule_files: recording & alerting rules (globs) ---
-    # NOTE: mount the rule files from a separate ConfigMap into the Prometheus
-    # container (e.g. at /etc/prometheus/rules/) and reference them here.
+    # Ready-made alert rules for every environment (Linux, Windows, SNMP,
+    # blackbox, Kubernetes, the LGTM stack itself) live in ../alerts/.
+    # All 81 are promtool-validated and load cleanly. To enable:
+    #
+    #   kubectl -n grafana-dev create configmap prometheus-alert-rules \
+    #     --from-file=alerts/ --dry-run=client -o yaml | kubectl apply -f -
+    #
+    # then mount that ConfigMap at /etc/prometheus/rules (as a DIRECTORY --
+    # subPath mounts never receive updates), uncomment the glob below, and
+    # `kubectl -n grafana-dev rollout restart deploy/prometheus`.
+    # A ready-to-uncomment volume + volumeMount pair is in
+    # prometheus-deployment.yaml. See alerts/README.md.
     # rule_files:
-    #   - /etc/prometheus/rules/*.yml     # recording + alerting rule definitions
+    #   - /etc/prometheus/rules/*.yaml
 
     # --- remote_write: ship samples to long-term storage (e.g. Mimir) ---
     # NOTE: this Prometheus already RECEIVES via --web.enable-remote-write-receiver;

@@ -1,0 +1,171 @@
+# Linux hosts -- node_exporter (default port 9100)
+#
+# Metric names VERIFIED by running node_exporter 1.12.1 and reading /metrics.
+# Targets come from prometheus-file-sd/targets/linux/*.yaml.
+#
+# Thresholds are starting points -- tune per site.
+groups:
+  - name: node-linux
+    rules:
+      - alert: NodeDown
+        expr: up{job=~".*linux.*|.*node.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node {{ $labels.instance }} is down"
+          description: "{{ $labels.instance }} has failed scraping for 5m."
+
+      # 100 - idle% . `mode="idle"` verified present.
+      - alert: NodeHighCPU
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU on {{ $labels.instance }}"
+          description: "CPU is {{ $value | printf \"%.1f\" }}% (>85%) for 15m."
+
+      # MemAvailable is the right gauge -- MemFree ignores reclaimable cache.
+      - alert: NodeLowMemory
+        expr: |
+          node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low memory on {{ $labels.instance }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% memory available."
+
+      # fstype exclusions matter: tmpfs/overlay/squashfs are always ~full or virtual.
+      # Observed fstypes on a real host: xfs, tmpfs, vfat, fuseblk, fuse.gvfsd-fuse.
+      - alert: NodeDiskSpaceLow
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"} * 100 < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "{{ $value | printf \"%.1f\" }}% free on {{ $labels.mountpoint }}."
+
+      # Capacity alerts should predict, not just threshold.
+      - alert: NodeDiskWillFillIn24h
+        expr: |
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"}
+              / node_filesystem_size_bytes{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"} * 100 < 25
+          )
+          and
+          predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"}[6h], 24 * 3600) < 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.instance }} will fill within 24h"
+          description: "Trend over the last 6h projects exhaustion within 24h."
+
+      # Running out of inodes looks like a full disk but df shows space free.
+      - alert: NodeInodesLow
+        expr: |
+          node_filesystem_files_free{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"}
+            / node_filesystem_files{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"} * 100 < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inodes low on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "{{ $value | printf \"%.1f\" }}% inodes free."
+
+      - alert: NodeFilesystemReadOnly
+        expr: node_filesystem_readonly == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem read-only on {{ $labels.instance }}"
+          description: "{{ $labels.mountpoint }} remounted read-only -- usually disk or fs corruption."
+
+      # Load normalised by core count, so one rule fits every host size.
+      - alert: NodeHighLoad
+        expr: |
+          node_load5 / count by (instance) (count by (instance, cpu) (node_cpu_seconds_total)) > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High load on {{ $labels.instance }}"
+          description: "load5 is {{ $value | printf \"%.2f\" }}x the core count."
+
+      - alert: NodeOOMKill
+        expr: increase(node_vmstat_oom_kill[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OOM kill on {{ $labels.instance }}"
+          description: "The kernel OOM-killed {{ $value | printf \"%.0f\" }} process(es) in the last 10m."
+
+      - alert: NodeRebooted
+        expr: time() - node_boot_time_seconds < 300
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.instance }} rebooted"
+          description: "Host booted less than 5 minutes ago."
+
+      # Clock skew breaks TLS, kerberos and makes graphs lie.
+      - alert: NodeClockSkew
+        expr: |
+          (node_timex_offset_seconds > 0.05 and deriv(node_timex_offset_seconds[5m]) >= 0)
+          or
+          (node_timex_offset_seconds < -0.05 and deriv(node_timex_offset_seconds[5m]) <= 0)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Clock skew on {{ $labels.instance }}"
+          description: "NTP offset is {{ $value | printf \"%.3f\" }}s and not converging."
+
+      - alert: NodeClockNotSynchronising
+        expr: min_over_time(node_timex_sync_status[5m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Clock not synchronising on {{ $labels.instance }}"
+
+      - alert: NodeFileDescriptorsExhausting
+        expr: node_filefd_allocated / node_filefd_maximum * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "File descriptors running out on {{ $labels.instance }}"
+          description: "{{ $value | printf \"%.1f\" }}% of the fd limit allocated."
+
+      - alert: NodeSwapAlmostFull
+        expr: |
+          (node_memory_SwapTotal_bytes > 0)
+          and
+          (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes * 100 < 10)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Swap almost full on {{ $labels.instance }}"
+
+      # ⚠️ REQUIRES the systemd collector: node_exporter --collector.systemd
+      # It is NOT enabled by default -- verified: node_systemd_unit_state is
+      # absent from a stock node_exporter 1.12.1. Without the flag this rule
+      # silently never fires.
+      - alert: NodeSystemdUnitFailed
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "systemd unit {{ $labels.name }} failed on {{ $labels.instance }}"

@@ -40,6 +40,7 @@ directory). Each app has its own `<app>-configmap.yaml` /
 | [certs/generate-certs.sh](certs/generate-certs.sh) | Self-signed CA + full-chain cert → `grafana-tls` Secret (dev/simulation). |
 | [examples/alloy-external.alloy](examples/alloy-external.alloy) | Collect from hosts **outside** Kubernetes (VMs, bare metal). |
 | [prometheus-file-sd/](prometheus-file-sd/) | **Dynamic Prometheus targets** — migrate big `static_configs` (Windows/SNMP/blackbox) to `file_sd` without redoing dashboards. |
+| [alerts/](alerts/) | **81 Prometheus alert rules** — Linux, Windows, SNMP, blackbox, Kubernetes, and the stack itself. |
 | [docs/correlation.md](docs/correlation.md) | Wire up the 4 signal jumps (log→trace, metric→trace via exemplars, trace→profile). |
 | [docs/meta-monitoring.md](docs/meta-monitoring.md) | Monitor the stack itself — official mixins, label contract, recording rules. |
 | [docs/alerting.md](docs/alerting.md) | Alertmanager vs Grafana-managed alerting, mixin alerts, starter rules. |

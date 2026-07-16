@@ -1,0 +1,116 @@
+# Windows hosts -- windows_exporter (default port 9182)
+#
+# Metric names VERIFIED against the windows_exporter 0.31.7 collector docs.
+#
+# ⚠️ Several widely-copied blog/StackOverflow names are from OLD versions and
+#    DO NOT exist in 0.31.x. Corrected here:
+#      windows_cs_physical_memory_bytes      -> windows_memory_physical_total_bytes
+#      windows_os_physical_memory_free_bytes -> windows_memory_available_bytes
+#      windows_system_system_up_time         -> windows_system_boot_time_timestamp
+#
+# Collectors must be enabled at install time, e.g.:
+#   msiexec /i windows_exporter.msi ENABLED_COLLECTORS="cpu,memory,logical_disk,net,os,service,system"
+#
+# Targets come from prometheus-file-sd/targets/windows/*.yaml.
+groups:
+  - name: windows
+    rules:
+      - alert: WindowsHostDown
+        expr: up{job=~".*windows.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Windows host {{ $labels.instance }} is down"
+
+      # mode label values verified: idle, dpc, interrupt, privileged, user
+      - alert: WindowsHighCPU
+        expr: |
+          100 - (avg by (instance) (rate(windows_cpu_time_total{mode="idle"}[5m])) * 100) > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU on {{ $labels.instance }}"
+          description: "CPU is {{ $value | printf \"%.1f\" }}% (>85%) for 15m."
+
+      # available_bytes = free + standby cache (what Windows can actually hand out).
+      - alert: WindowsLowMemory
+        expr: |
+          windows_memory_available_bytes / windows_memory_physical_total_bytes * 100 < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low memory on {{ $labels.instance }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% memory available."
+
+      # label is `volume` (e.g. volume="C:"), NOT mountpoint. HarddiskVolume*
+      # entries are unlettered system volumes -- excluded to cut noise.
+      - alert: WindowsDiskSpaceLow
+        expr: |
+          windows_logical_disk_free_bytes{volume!~"HarddiskVolume.*"}
+            / windows_logical_disk_size_bytes{volume!~"HarddiskVolume.*"} * 100 < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk {{ $labels.volume }} low on {{ $labels.instance }}"
+          description: "{{ $value | printf \"%.1f\" }}% free on {{ $labels.volume }}."
+
+      - alert: WindowsDiskWillFillIn24h
+        expr: |
+          (
+            windows_logical_disk_free_bytes{volume!~"HarddiskVolume.*"}
+              / windows_logical_disk_size_bytes{volume!~"HarddiskVolume.*"} * 100 < 25
+          )
+          and
+          predict_linear(windows_logical_disk_free_bytes{volume!~"HarddiskVolume.*"}[6h], 24 * 3600) < 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.volume }} on {{ $labels.instance }} will fill within 24h"
+
+      # state label values verified: stopped, start pending, stop pending,
+      # running, continue pending, pause pending, paused, unknown.
+      # EDIT the name regex -- there is no point alerting on every service.
+      - alert: WindowsServiceNotRunning
+        expr: |
+          windows_service_state{state="running", name=~"MSSQLSERVER|W3SVC|Spooler"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.name }} not running on {{ $labels.instance }}"
+          description: "Expected state=running for {{ $labels.name }}."
+
+      - alert: WindowsHostRebooted
+        expr: time() - windows_system_boot_time_timestamp < 300
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.instance }} rebooted"
+          description: "Host booted less than 5 minutes ago."
+
+      # Sustained read latency -- seconds spent servicing reads per second.
+      - alert: WindowsHighDiskReadLatency
+        expr: |
+          rate(windows_logical_disk_read_seconds_total{volume!~"HarddiskVolume.*"}[5m])
+            / (rate(windows_logical_disk_reads_total{volume!~"HarddiskVolume.*"}[5m]) > 0) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk read latency on {{ $labels.instance }} ({{ $labels.volume }})"
+          description: "Average read latency {{ $value | printf \"%.3f\" }}s (>100ms)."
+
+      - alert: WindowsProcessorQueueBacklog
+        expr: windows_system_processor_queue_length > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Processor queue backlog on {{ $labels.instance }}"
+          description: "{{ $value }} threads queued -- CPU saturation."

@@ -1,0 +1,148 @@
+# Prometheus + Alertmanager watching themselves.
+#
+# If the monitoring system breaks quietly, every other alert in this directory
+# becomes a lie -- silence starts meaning "broken", not "healthy". These are the
+# rules that protect that assumption.
+#
+# Metric names verified from prometheus/notifier + alertmanager/notify sources
+# and a live Prometheus 3.13.
+groups:
+  - name: prometheus-self
+    rules:
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus config reload failed on {{ $labels.instance }}"
+          description: "Prometheus is running with the LAST GOOD config -- your latest change is not live."
+
+      - alert: PrometheusTSDBCompactionsFailing
+        expr: increase(prometheus_tsdb_compactions_failed_total[3h]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus TSDB compaction failing on {{ $labels.instance }}"
+
+      - alert: PrometheusTSDBHeadTruncationsFailing
+        expr: increase(prometheus_tsdb_head_truncations_failed_total[3h]) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus TSDB head truncation failing on {{ $labels.instance }}"
+          description: "The head block cannot be truncated -- memory will keep growing."
+
+      - alert: PrometheusWALCorruption
+        expr: increase(prometheus_tsdb_wal_corruptions_total[3h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus WAL corruption on {{ $labels.instance }}"
+
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus rule evaluations failing on {{ $labels.instance }}"
+          description: "Some alerting/recording rules are erroring -- those alerts will never fire."
+
+      - alert: PrometheusRuleEvaluationsSlow
+        expr: |
+          prometheus_rule_group_last_duration_seconds > prometheus_rule_group_interval_seconds
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rule group {{ $labels.rule_group }} takes longer than its interval"
+          description: "Evaluation is falling behind -- alerts will be delayed."
+
+      - alert: PrometheusTargetScrapesFailing
+        expr: |
+          increase(prometheus_target_scrapes_exceeded_sample_limit_total[10m]) > 0
+          or increase(prometheus_target_scrapes_sample_duplicate_timestamp_total[10m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus is rejecting scraped samples on {{ $labels.instance }}"
+
+      - alert: PrometheusRestarted
+        expr: time() - process_start_time_seconds{job="prometheus"} < 300
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "Prometheus restarted on {{ $labels.instance }}"
+
+      # --- Delivery path: alerts that fire but never arrive ----------------
+      # Only meaningful if you run a standalone Alertmanager (Option B in
+      # docs/alerting.md). Grafana-managed alerting does not use these.
+      - alert: PrometheusNotificationsFailing
+        expr: rate(prometheus_notifications_errors_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus cannot deliver alerts to Alertmanager"
+          description: "Alerts are firing but not reaching {{ $labels.alertmanager }}."
+
+      - alert: PrometheusNoAlertmanagersDiscovered
+        expr: prometheus_notifications_alertmanagers_discovered < 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus has no Alertmanager"
+          description: "Nothing will be notified, no matter what fires."
+
+      - alert: PrometheusNotificationQueueFilling
+        expr: |
+          prometheus_notifications_queue_length / prometheus_notifications_queue_capacity * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus notification queue {{ $value | printf \"%.0f\" }}% full"
+
+  - name: alertmanager-self
+    rules:
+      - alert: AlertmanagerConfigReloadFailed
+        expr: alertmanager_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager config reload failed on {{ $labels.instance }}"
+
+      # NOTE the `ignoring (reason)`: _failed_total carries an extra `reason`
+      # label that _total does not, so a plain division would match nothing.
+      - alert: AlertmanagerFailedToSendAlerts
+        expr: |
+          (
+            rate(alertmanager_notifications_failed_total[5m])
+          / ignoring (reason) group_left
+            rate(alertmanager_notifications_total[5m])
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager failing to send via {{ $labels.integration }}"
+          description: "{{ $value | humanizePercentage }} of notifications are failing."
+
+      - alert: AlertmanagerClusterMembersInconsistent
+        expr: |
+          max by (job) (alertmanager_cluster_members) != on (job) group_left
+          count by (job) (alertmanager_cluster_members)
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager cluster members inconsistent"
+          description: "Peers disagree on membership -- expect duplicate or missing notifications."

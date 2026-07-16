@@ -1,0 +1,151 @@
+# The LGTM stack monitoring ITSELF (Alloy, Loki, Tempo, Mimir, Prometheus).
+#
+# ⚠️ PREREQUISITE: these need the stack's own components to be scraped. That
+# requires the prometheus.io/scrape annotations and the job="<namespace>/<app>"
+# relabel -- see docs/meta-monitoring.md. Without them these rules evaluate to
+# an empty vector FOREVER, which looks exactly like "healthy".
+#
+# Metric names verified on a live deploy (job values observed:
+# grafana-dev/alloy, grafana-dev/loki, grafana-dev/tempo, grafana-dev/pyroscope).
+groups:
+  - name: lgtm-stack
+    rules:
+      # ---- Alloy: the single point of failure for ALL signals -------------
+      # If this fires you are blind: nothing is reaching any store.
+      - alert: AlloyRemoteWriteFailing
+        expr: rate(prometheus_remote_storage_samples_failed_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alloy remote_write failing to {{ $labels.url }}"
+          description: "{{ $value | printf \"%.1f\" }} samples/s are failing with non-recoverable errors."
+
+      # Prometheus tolerates ~2h of remote-write outage before data loss,
+      # so 15m of backlog is a warning, not yet a page.
+      - alert: AlloyRemoteWriteBacklog
+        expr: prometheus_remote_storage_samples_pending > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alloy remote_write backlog to {{ $labels.url }}"
+          description: "{{ $value }} samples pending -- the remote is slow or down."
+
+      - alert: AlloyRemoteWriteShardsMaxed
+        expr: |
+          prometheus_remote_storage_shards >= prometheus_remote_storage_shards_max
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alloy remote_write is shard-limited"
+          description: "Queue is at max shards -- it cannot keep up with ingest."
+
+      - alert: AlloyDown
+        expr: up{job=~".*/alloy"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alloy is down -- no logs, metrics, traces or profiles are being collected"
+
+      # ---- Loki ----------------------------------------------------------
+      # Discards are silent data loss: logs are accepted then thrown away.
+      - alert: LokiDiscardingSamples
+        expr: |
+          sum by (tenant, reason) (rate(loki_discarded_samples_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki discarding logs (reason: {{ $labels.reason }})"
+          description: "{{ $value | printf \"%.1f\" }} entries/s dropped -- often rate_limited or out-of-order."
+
+      - alert: LokiRequestErrors
+        expr: |
+          100 * sum by (job, route) (rate(loki_request_duration_seconds_count{status_code=~"5.."}[5m]))
+            / sum by (job, route) (rate(loki_request_duration_seconds_count[5m])) > 10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Loki 5xx on {{ $labels.route }}"
+          description: "{{ $value | printf \"%.1f\" }}% of requests are failing."
+
+      - alert: LokiRequestLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, route, le) (rate(loki_request_duration_seconds_bucket[5m]))
+          ) > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki p99 latency high on {{ $labels.route }}"
+          description: "p99 is {{ $value | printf \"%.1f\" }}s."
+
+      # ---- Tempo ---------------------------------------------------------
+      - alert: TempoCompactionsFailing
+        expr: |
+          sum by (job) (increase(tempodb_compaction_errors_total[1h])) > 2
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tempo compaction failing"
+          description: "{{ $value | printf \"%.0f\" }} compaction errors in the last hour -- blocks are not being compacted."
+
+      - alert: TempoRingMembersUnhealthy
+        expr: |
+          max by (job, name) (tempo_ring_members{state="Unhealthy"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo {{ $labels.name }} ring has unhealthy members"
+
+      # Spans arriving later than metrics_ingestion_time_range_slack (default
+      # 30s) are silently dropped by the generator -- a common "no span
+      # metrics" cause. See docs/correlation.md.
+      - alert: TempoMetricsGeneratorDroppingSpans
+        expr: |
+          sum by (job) (rate(tempo_metrics_generator_spans_discarded_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo metrics-generator discarding spans (reason: {{ $labels.reason }})"
+          description: "Span metrics/exemplars will be incomplete."
+
+      # ---- Mimir (only if grafana-dev-mimir/ is deployed) -----------------
+      - alert: MimirIngesterUnhealthy
+        expr: |
+          min by (job) (cortex_ring_members{state="Unhealthy", name="ingester"}) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir has unhealthy ingesters"
+
+      # Mimir -> RustFS (S3). If this fires, long-term metrics are not durable.
+      - alert: MimirObjectStorageFailures
+        expr: |
+          sum by (job, operation) (rate(thanos_objstore_bucket_operation_failures_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir object-storage ({{ $labels.operation }}) failing"
+          description: "Blocks are not reaching RustFS -- check the TLS chain and credentials."
+
+      - alert: MimirRequestErrors
+        expr: |
+          100 * sum by (job, route) (rate(cortex_request_duration_seconds_count{status_code=~"5.."}[5m]))
+            / sum by (job, route) (rate(cortex_request_duration_seconds_count[5m])) > 10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir 5xx on {{ $labels.route }}"
+          description: "{{ $value | printf \"%.1f\" }}% of requests failing."

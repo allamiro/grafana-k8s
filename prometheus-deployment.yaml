@@ -65,6 +65,11 @@ spec:
               mountPath: /prometheus
             - name: prometheus-config
               mountPath: /etc/prometheus
+            # Alert rules from alerts/ -- uncomment together with the
+            # `alert-rules` volume below and rule_files in the ConfigMap.
+            # Mounted as a DIRECTORY (not subPath) so ConfigMap updates land.
+            # - name: alert-rules
+            #   mountPath: /etc/prometheus/rules
       volumes:
         - name: prometheus-data
           persistentVolumeClaim:
@@ -72,3 +77,6 @@ spec:
         - name: prometheus-config
           configMap:
             name: prometheus-config
+        # - name: alert-rules
+        #   configMap:
+        #     name: prometheus-alert-rules

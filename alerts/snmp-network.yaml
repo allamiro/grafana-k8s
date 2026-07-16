@@ -1,0 +1,104 @@
+# Network devices -- snmp_exporter (exporter on :9116, if_mib module)
+#
+# Metric names VERIFIED against the snmp.yml shipped with snmp_exporter 0.30.1.
+#
+# IMPORTANT: with the file_sd setup in prometheus-file-sd/, `instance` is the
+# DEVICE address (relabeled from __param_target) and __address__ is the
+# exporter. If instance ever shows the exporter's address, the relabel rules
+# were dropped -- see prometheus-file-sd/README.md.
+#
+# Targets: prometheus-file-sd/targets/snmp/*.yaml (module via __param_module).
+groups:
+  - name: snmp-network
+    rules:
+      # The scrape itself failing = device unreachable / SNMP not answering.
+      - alert: SNMPDeviceUnreachable
+        expr: up{job=~".*snmp.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SNMP device {{ $labels.instance }} unreachable"
+          description: "snmp_exporter could not poll {{ $labels.instance }} for 5m."
+
+      # ifOperStatus: 1=up 2=down 3=testing 4=unknown 5=dormant 6=notPresent 7=lowerLayerDown
+      # Only alert where the interface is ADMINISTRATIVELY up (ifAdminStatus==1),
+      # otherwise every shut port pages you.
+      - alert: SNMPInterfaceDown
+        expr: |
+          ifOperStatus != 1 and ifAdminStatus == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Interface {{ $labels.ifDescr }} down on {{ $labels.instance }}"
+          description: "ifOperStatus={{ $value }} while admin state is up."
+
+      # 64-bit counters (ifHC*) -- the 32-bit ifInOctets wrap on fast links.
+      # ifHighSpeed is in Mbit/s; x1e6/8 -> bytes/s.
+      - alert: SNMPInterfaceHighInboundUtilisation
+        expr: |
+          (
+            rate(ifHCInOctets[5m]) * 8
+              / (ifHighSpeed * 1000000 > 0)
+          ) * 100 > 80
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inbound {{ $labels.ifDescr }} >80% on {{ $labels.instance }}"
+          description: "{{ $value | printf \"%.1f\" }}% of link capacity inbound."
+
+      - alert: SNMPInterfaceHighOutboundUtilisation
+        expr: |
+          (
+            rate(ifHCOutOctets[5m]) * 8
+              / (ifHighSpeed * 1000000 > 0)
+          ) * 100 > 80
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbound {{ $labels.ifDescr }} >80% on {{ $labels.instance }}"
+          description: "{{ $value | printf \"%.1f\" }}% of link capacity outbound."
+
+      - alert: SNMPInterfaceErrors
+        expr: |
+          rate(ifInErrors[5m]) + rate(ifOutErrors[5m]) > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Errors on {{ $labels.ifDescr }} ({{ $labels.instance }})"
+          description: "{{ $value | printf \"%.2f\" }} errors/s -- suspect cabling/SFP/duplex."
+
+      # Discards usually mean congestion or buffer exhaustion, not link faults.
+      - alert: SNMPInterfaceDiscards
+        expr: |
+          rate(ifInDiscards[5m]) + rate(ifOutDiscards[5m]) > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Discards on {{ $labels.ifDescr }} ({{ $labels.instance }})"
+          description: "{{ $value | printf \"%.2f\" }} discards/s -- likely congestion."
+
+      # sysUpTime is in hundredths of a second. A DROP means the device rebooted.
+      - alert: SNMPDeviceRebooted
+        expr: sysUpTime / 100 < 300
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} rebooted"
+          description: "sysUpTime is under 5 minutes."
+
+      # The exporter's own view of the poll. snmp_exporter emits these per scrape.
+      - alert: SNMPSlowPoll
+        expr: snmp_scrape_duration_seconds > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow SNMP poll of {{ $labels.instance }}"
+          description: "Poll took {{ $value | printf \"%.1f\" }}s -- risks scrape timeout."
