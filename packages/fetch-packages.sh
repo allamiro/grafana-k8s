@@ -57,9 +57,9 @@ for repo in "${!REPOS[@]}"; do
 done
 
 echo
-echo "### 2. EPEL RPMs (subset only)"
+echo "### 2a. EPEL RPMs -- newest for prometheus/node-exporter/alertmanager"
 for p in prometheus node-exporter alertmanager; do
-  echo ">>> $p"
+  echo ">>> $p (epel)"
   # NOTE: --resolve is a boolean flag; `--resolve=false` is an argparse error.
   # Omit it to download just the named package without its dependencies.
   if dnf download --destdir "$RPM" "$p" >/dev/null 2>&1; then
@@ -70,7 +70,24 @@ for p in prometheus node-exporter alertmanager; do
     echo "!!! RPM DOWNLOAD FAILED: $p"
   fi
 done
-echo "    NOTE: snmp_exporter / blackbox_exporter are NOT in EPEL -- tarball only."
+
+echo
+echo "### 2b. prometheus-rpm (packagecloud) -- the ONLY RPM source for"
+echo "###     snmp_exporter / blackbox_exporter / pushgateway on EL9"
+PCREPO="https://packagecloud.io/prometheus-rpm/release/el/9/x86_64"
+for p in snmp_exporter blackbox_exporter pushgateway node_exporter alertmanager; do
+  echo ">>> $p (prometheus-rpm)"
+  if dnf --repofrompath="promrpm,$PCREPO" --repo=promrpm --nogpgcheck --quiet \
+        download --destdir "$RPM" "$p" >/dev/null 2>&1; then
+    f=$(ls -t "$RPM"/${p}-*.rpm 2>/dev/null | head -1)
+    [ -n "$f" ] && { printf '%-22s %-12s %-14s %s\n' "$p" "$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$f" 2>/dev/null)" "rpm(prom-rpm)" "rpm/$(basename "$f")" >> "$MAN"
+                     echo "    $(basename "$f") ($(du -h "$f"|cut -f1))"; }
+  else
+    echo "!!! RPM DOWNLOAD FAILED: $p"
+  fi
+done
+echo "    NOTE: --nogpgcheck is used to DOWNLOAD only. Import the repo GPG key"
+echo "          before installing:  https://packagecloud.io/prometheus-rpm/release/gpgkey"
 
 echo
 echo "### 3. windows_exporter (for the Windows hosts)"

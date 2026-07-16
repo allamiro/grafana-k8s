@@ -9,31 +9,57 @@ metal, network gear, and Windows boxes that feed the stack via
 > [manifest.txt](manifest.txt), and [fetch-packages.sh](fetch-packages.sh) are
 > tracked. Refetch with `./packages/fetch-packages.sh`.
 
-## RPM vs tarball — read this first
+## Where RPMs come from — read this first
 
-**Upstream Prometheus does not publish RPMs.** It ships `tar.gz` binaries on
-GitHub. RPMs come from EPEL, which packages only *some* components — and at
-different (usually older) versions:
+**Upstream Prometheus publishes no RPMs**; it ships `tar.gz` on GitHub. But two
+RPM repos cover EL9 between them, and **which repo is newest differs per
+component**:
 
-| Component | EPEL RPM | Upstream tarball |
-| --- | --- | --- |
-| prometheus | ✅ 3.13.1-1.el9 | ✅ 3.13.1 |
-| node_exporter | ✅ 1.11.1-1.el9 (as `node-exporter`) | ✅ 1.12.1 |
-| alertmanager | ✅ 0.33.0-1.el9 | ✅ 0.33.1 |
-| **snmp_exporter** | ❌ **not packaged** | ✅ 0.30.1 |
-| **blackbox_exporter** | ❌ **not packaged** | ✅ 0.28.0 |
-| pushgateway | ❌ not packaged | ✅ 1.11.3 |
-| windows_exporter | — (MSI) | ✅ 0.31.7 |
+| Component | EPEL 9 | [prometheus-rpm](https://packagecloud.io/prometheus-rpm/release) | Upstream tarball |
+| --- | --- | --- | --- |
+| prometheus | ✅ **3.13.1-1** | ❌ not in repo | ✅ 3.13.1 |
+| node_exporter | ✅ **1.11.1-1** (`node-exporter`) | ✅ 1.9.0-1 (`node_exporter`) | ✅ 1.12.1 |
+| alertmanager | ✅ **0.33.0-1** | ✅ 0.28.1-1 | ✅ 0.33.1 |
+| **snmp_exporter** | ❌ not packaged | ✅ **0.28.0-1** | ✅ 0.30.1 |
+| **blackbox_exporter** | ❌ not packaged | ✅ **0.26.0-1** | ✅ 0.28.0 |
+| pushgateway | ❌ not packaged | ✅ **1.11.0-1** | ✅ 1.11.3 |
+| windows_exporter | — | — | ✅ 0.31.7 (MSI/EXE) |
 
-So for **SNMP and blackbox there is no RPM option** — tarball or container only.
+Rules of thumb:
 
-**Which to use?** RPMs give you systemd units, a service user, and `/etc/`
-config paths for free — nice for a handful of RHEL hosts. Tarballs give you the
-current upstream version and identical layout on every distro — better when you
-want one version everywhere, or need snmp/blackbox anyway (you do). Mixing is
-fine; just don't install both for the same component.
+- **snmp_exporter / blackbox_exporter / pushgateway** → **prometheus-rpm** is
+  the only RPM source on EL9.
+- **prometheus / node_exporter / alertmanager** → **EPEL** is newer; prefer it.
+- **Newest of all** → upstream tarball (but you build the systemd unit yourself).
+
+> ⚠️ **Don't mix sources for the same component.** EPEL's `node-exporter` and
+> prometheus-rpm's `node_exporter` are *different package names shipping the
+> same binary* — installing both will collide.
+
+prometheus-rpm also carries ~57 EL9 exporters EPEL doesn't (mysqld, postgres,
+ipmi, bind, haproxy, elasticsearch, …):
+
+```bash
+dnf --repofrompath='promrpm,https://packagecloud.io/prometheus-rpm/release/el/9/x86_64' \
+    --repo=promrpm --nogpgcheck list available
+```
+
+**RPM or tarball?** RPMs give you a systemd unit, a `prometheus` service user,
+and `/etc/prometheus/` config paths for free. Tarballs give you the newest
+version and an identical layout on every distro. Both are here — pick per host.
 
 Exact versions and verification status: [manifest.txt](manifest.txt).
+
+## Adding the prometheus-rpm repo (online hosts)
+
+```bash
+curl -s https://packagecloud.io/install/repositories/prometheus-rpm/release/script.rpm.sh | sudo bash
+sudo dnf install -y snmp_exporter blackbox_exporter
+```
+
+The bundled RPMs here were downloaded with `--nogpgcheck` (download only). For
+installs, import the repo key rather than disabling GPG:
+<https://packagecloud.io/prometheus-rpm/release/gpgkey>
 
 ## Contents
 
@@ -89,15 +115,25 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload && sudo systemctl enable --now node_exporter
 ```
 
-### snmp_exporter (tarball only)
+### snmp_exporter
 
-Ships a large generated `snmp.yml` of modules (`if_mib`, `cisco_wlc`, …):
+**RPM (prometheus-rpm)** — installs the binary, a systemd unit, and the
+generated module file:
+
+```bash
+sudo dnf install -y ./packages/rpm/snmp_exporter-0.28.0-1.el9.x86_64.rpm
+# -> /usr/bin/snmp_exporter
+#    /etc/prometheus/snmp.yml                     (modules: if_mib, cisco_wlc, ...)
+#    /usr/lib/systemd/system/snmp_exporter.service
+sudo systemctl enable --now snmp_exporter
+```
+
+**Tarball** (newer, 0.30.1) — same files, unit is yours to write:
 
 ```bash
 tar xzf packages/tarball/snmp_exporter-0.30.1.linux-amd64.tar.gz
 sudo install -m 0755 snmp_exporter-0.30.1.linux-amd64/snmp_exporter /usr/local/bin/
 sudo install -D -m 0644 snmp_exporter-0.30.1.linux-amd64/snmp.yml /etc/snmp_exporter/snmp.yml
-# ExecStart=/usr/local/bin/snmp_exporter --config.file=/etc/snmp_exporter/snmp.yml
 ```
 
 Listens on **:9116**. Probe a device by hand:
@@ -109,26 +145,43 @@ curl 'localhost:9116/snmp?module=if_mib&target=192.168.1.1'
 > Modules are selected **per device** via a `__param_module` label in the
 > file_sd target file — see
 > [prometheus-file-sd/targets/snmp/switches.yaml](../prometheus-file-sd/targets/snmp/switches.yaml).
-> Custom OIDs need the *generator* (in the source repo), not this tarball.
+> Custom OIDs need the *generator* (in the source repo); it's in neither the RPM
+> nor the tarball.
 
-### blackbox_exporter (tarball only)
-
-```bash
-tar xzf packages/tarball/blackbox_exporter-0.28.0.linux-amd64.tar.gz
-sudo install -m 0755 blackbox_exporter-0.28.0.linux-amd64/blackbox_exporter /usr/local/bin/
-sudo install -D -m 0644 blackbox_exporter-0.28.0.linux-amd64/blackbox.yml /etc/blackbox_exporter/blackbox.yml
-```
-
-Listens on **:9115**. ICMP probes need extra privilege:
+### blackbox_exporter
 
 ```bash
-sudo setcap cap_net_raw+ep /usr/local/bin/blackbox_exporter
+sudo dnf install -y ./packages/rpm/blackbox_exporter-0.26.0-1.el9.x86_64.rpm
+# -> /usr/bin/blackbox_exporter
+#    /etc/prometheus/blackbox.yml
+#    /usr/lib/systemd/system/blackbox_exporter.service   (User=prometheus)
+sudo systemctl enable --now blackbox_exporter
 ```
 
-(Miss this and `icmp` probes fail while `http_2xx` works — a classic.)
+Listens on **:9115**.
+
+> ### ⚠️ ICMP probes fail out of the box
+> The RPM's unit runs `User=prometheus` and grants **no `CAP_NET_RAW`**
+> (verified: no `AmbientCapabilities` in the shipped unit, no `setcap`
+> scriptlet). So `http_2xx` works while `icmp` silently fails. Fix with a
+> systemd drop-in:
+>
+> ```bash
+> sudo systemctl edit blackbox_exporter
+> ```
+> ```ini
+> [Service]
+> AmbientCapabilities=CAP_NET_RAW
+> ```
+> ```bash
+> sudo systemctl restart blackbox_exporter
+> ```
+>
+> For a **tarball** install instead: `sudo setcap cap_net_raw+ep /usr/local/bin/blackbox_exporter`
 
 ```bash
 curl 'localhost:9115/probe?module=http_2xx&target=https://example.com'
+curl 'localhost:9115/probe?module=icmp&target=10.0.0.1'      # needs CAP_NET_RAW
 ```
 
 ## Installing — Windows
