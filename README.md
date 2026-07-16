@@ -388,11 +388,97 @@ namespace) and stores its blocks in **RustFS**, an S3-compatible object store
 served over TLS — see the full guide in
 [grafana-dev-mimir/README.md](grafana-dev-mimir/README.md):
 
+### Deploy Mimir + RustFS from scratch (every step)
+
+Run these in order. Each step says what it creates and how to confirm it before
+moving on. All of it lands in the `grafana-dev` namespace.
+
+**Step 0 — Prerequisite: the namespace exists.** (Created in the main stack's
+Step 2; run this if you're doing Mimir standalone.)
+
 ```bash
-kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml
-./grafana-dev-mimir/generate-rustfs-certs.sh
-kubectl apply -f grafana-dev-mimir/
+kubectl apply -f namespace.yaml
 ```
+
+**Step 1 — S3 credentials → `rustfs-credentials` Secret.** One Secret is read by
+*three* consumers: the RustFS server, Mimir (S3 client), and the bucket Job.
+Generate strong random keys (recommended — it prints them once, save them):
+
+```bash
+./grafana-dev-mimir/generate-rustfs-credentials.sh
+# dev-only alternative (checked-in placeholders):
+#   kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml
+kubectl -n grafana-dev get secret rustfs-credentials      # confirm it exists
+```
+
+**Step 2 — TLS cert for RustFS → `rustfs-tls` Secret.** RustFS serves its S3
+API over HTTPS, so it needs a cert whose SANs cover its in-cluster names (full
+breakdown in [TLS certs for RustFS](#tls-certs-for-rustfs-what-generate-rustfs-certssh-does)
+below):
+
+```bash
+./grafana-dev-mimir/generate-rustfs-certs.sh
+kubectl -n grafana-dev get secret rustfs-tls              # confirm it exists
+```
+
+**Step 3 — storage claims** (RustFS data 30Gi + Mimir WAL/cache 20Gi):
+
+```bash
+kubectl apply -f grafana-dev-mimir/mimir-pvc.yaml
+kubectl -n grafana-dev get pvc                            # both should Bind
+```
+
+**Step 4 — RustFS server + service**, then wait for it to be Ready:
+
+```bash
+kubectl apply -f grafana-dev-mimir/rustfs-deployment.yaml \
+              -f grafana-dev-mimir/rustfs-svc.yaml
+kubectl -n grafana-dev rollout status deploy/rustfs
+```
+
+**Step 5 — create Mimir's buckets** (`mimir-blocks` + `mimir-ruler`) via the
+one-shot, idempotent Job, and wait for it to complete:
+
+```bash
+kubectl apply -f grafana-dev-mimir/rustfs-create-buckets-job.yaml
+kubectl -n grafana-dev wait --for=condition=complete job/rustfs-create-buckets --timeout=120s
+```
+
+**Step 6 — Mimir itself** (config + deployment + service), then wait for Ready:
+
+```bash
+kubectl apply -f grafana-dev-mimir/mimir-configmap.yaml \
+              -f grafana-dev-mimir/mimir-deployment.yaml \
+              -f grafana-dev-mimir/mimir-svc.yaml
+kubectl -n grafana-dev rollout status deploy/mimir
+```
+
+**Step 7 — verify the whole path is up:**
+
+```bash
+kubectl -n grafana-dev get pods -l 'app in (rustfs, mimir)'
+kubectl get --raw "/api/v1/namespaces/grafana-dev/services/mimir:9009/proxy/ready"
+# browse the buckets/objects in the RustFS console:
+kubectl -n grafana-dev port-forward svc/rustfs 9001:9001   # http://localhost:9001
+```
+
+**Step 8 — wire it into the stack** (send metrics in, and query them out):
+
+```bash
+# Ingest: point Alloy remote_write at Mimir (the config already dual-writes;
+# uncomment/keep the Mimir endpoint), then restart Alloy:
+kubectl apply -f alloy-configmap.yaml
+kubectl -n grafana-dev rollout restart deploy/alloy
+
+# Query: uncomment the Mimir datasource in grafana-configmap.yaml, then:
+kubectl apply -f grafana-configmap.yaml
+kubectl -n grafana-dev rollout restart deploy/grafana
+```
+
+> **Shortcut:** after Steps 1–2 you can `kubectl apply -f grafana-dev-mimir/`
+> to apply everything at once — Kubernetes retries until ordering resolves. The
+> explicit sequence above just avoids transient "bucket not found"/"connection
+> refused" errors while things come up, and gives you a checkpoint per step.
 
 ### TLS certs for RustFS (what `generate-rustfs-certs.sh` does)
 
@@ -447,12 +533,58 @@ kubectl -n grafana-dev create secret generic rustfs-tls \
 
 Change the namespace or validity with the `NAMESPACE` / `DAYS` env vars the
 script honours (defaults `grafana-dev` / `825`). Dev outputs land in the
-git-ignored `grafana-dev-mimir/certs-out/`.
+git-ignored `grafana-dev-mimir/certs-out/`. The script **verifies the chain
+before it deploys** (`openssl verify -CAfile ca.crt rustfs_cert.pem` + a SAN
+check), so a broken cert fails here instead of surfacing later as a Mimir
+connection error.
+
+#### Making the chain verify (no "unable to get local issuer" / SAN errors)
+
+Every client that reaches RustFS (**Mimir** via `tls_ca_path`, the **bucket
+Job** via `AWS_CA_BUNDLE`) does full verification — `insecure: false`, no
+skip-verify. Two rules keep that from failing:
+
+1. **The served cert must be a *full chain*.** RustFS presents `rustfs_cert.pem`
+   to clients; that file must contain the **leaf first, then every
+   intermediate**, up to (but not including) the root. Clients only hold the
+   **root/CA** in `ca.crt`. If an intermediate is missing from the served file,
+   verification fails with `unable to get local issuer certificate` even though
+   the cert is otherwise valid. In dev there are no intermediates (the CA signs
+   the leaf directly), so `rustfs_cert.pem` = the single leaf and `ca.crt` = the
+   CA. With a real CA:
+
+   ```bash
+   # served cert = leaf + intermediate(s), in that order (leaf first):
+   cat rustfs.crt intermediate.crt > rustfs_cert.pem
+   # trust bundle clients verify against = root (+ intermediates is fine too):
+   cat root.crt > ca.crt        # or: cat intermediate.crt root.crt > ca.crt
+   ```
+
+2. **The name must be in a SAN, not just the CN.** Modern TLS validates the
+   hostname against `subjectAltName`. Mimir connects to
+   `rustfs.grafana-dev.svc.cluster.local:9000`, so that exact name must be a
+   `DNS:` SAN (Step 3 covers all the in-cluster forms). A cert with only a CN
+   throws `certificate is valid for …, not …`.
+
+Verify by hand any time (same checks the script runs):
+
+```bash
+openssl verify -CAfile ca.crt rustfs_cert.pem                 # must print "OK"
+openssl x509 -in rustfs_cert.pem -noout -ext subjectAltName   # must list the name
+# end to end, from inside the cluster:
+kubectl -n grafana-dev exec deploy/mimir -- \
+  openssl s_client -connect rustfs.grafana-dev.svc.cluster.local:9000 \
+  -CAfile /etc/rustfs-ca/ca.crt -verify_return_error </dev/null
+```
+
+The **same two rules** apply to Grafana's own cert (browsers are the clients) —
+see [TLS in production](#tls-in-production-certs-chain-cnf), which builds the
+leaf→intermediate→root `fullchain.crt` the identical way.
 
 > **Production:** in Step 1 skip the self-signed CA and submit `rustfs.csr`
-> (Step 2) to your real CA. Build the full chain the same way as the Grafana
-> cert (see [TLS in production](#tls-in-production-certs-chain-cnf)) and load it
-> into `rustfs-tls` with the same three key names above.
+> (Step 2) to your real CA. Assemble `rustfs_cert.pem` as the full chain
+> (rule 1) and put your root CA in `ca.crt`, then load `rustfs-tls` with the
+> same three key names above.
 
 ### How a metric reaches Grafana — every component
 

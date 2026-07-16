@@ -87,6 +87,31 @@ In production, replace the Secret with your real cert/chain (same key names —
 the command is in the header of `generate-rustfs-certs.sh`) and put your CA
 chain in `ca.crt`.
 
+**Avoiding verification errors — the two chain rules.** Clients (Mimir, the
+bucket Job) do full verification, so:
+
+1. **`rustfs_cert.pem` must be the full chain** — leaf first, then every
+   intermediate (not the root). If an intermediate is missing, clients fail with
+   `unable to get local issuer certificate`. Dev has no intermediates (CA signs
+   the leaf directly), so the leaf alone is the whole chain.
+   ```bash
+   cat rustfs.crt intermediate.crt > rustfs_cert.pem   # prod: leaf → intermediate
+   cat root.crt > ca.crt                               # trust anchor for clients
+   ```
+2. **The service name must be a SAN** (not just the CN) — Mimir dials
+   `rustfs.grafana-dev.svc.cluster.local:9000`, so that name must be a `DNS:`
+   SAN or you get `certificate is valid for …, not …`.
+
+`generate-rustfs-certs.sh` runs `openssl verify` + a SAN check before creating
+the Secret, so a broken chain fails at generation, not at runtime. Check a live
+endpoint any time:
+
+```bash
+kubectl -n grafana-dev exec deploy/mimir -- \
+  openssl s_client -connect rustfs.grafana-dev.svc.cluster.local:9000 \
+  -CAfile /etc/rustfs-ca/ca.crt -verify_return_error </dev/null
+```
+
 ## Deploy (in order)
 
 ```bash

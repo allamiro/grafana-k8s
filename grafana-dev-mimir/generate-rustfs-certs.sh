@@ -41,6 +41,15 @@ EOF
 openssl x509 -req -in rustfs.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
   -days "${DAYS}" -sha256 -extfile san.cnf -out rustfs_cert.pem
 
+echo ">> Verifying the chain (fail fast on trust/verification problems)"
+# The exact check Mimir/the bucket Job do at runtime: does rustfs_cert.pem
+# chain to the CA in ca.crt? If this fails, so will every client.
+openssl verify -CAfile ca.crt rustfs_cert.pem
+# Confirm the SANs are present -- clients validate the name against these,
+# NOT the CN. A missing SAN is the #1 cause of "certificate is valid for X,
+# not Y" errors.
+openssl x509 -in rustfs_cert.pem -noout -ext subjectAltName
+
 echo ">> 4/4 Creating/updating Secret ${NAMESPACE}/rustfs-tls"
 kubectl -n "${NAMESPACE}" create secret generic rustfs-tls \
   --from-file=rustfs_cert.pem=rustfs_cert.pem \
