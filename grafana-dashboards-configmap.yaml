@@ -401,27 +401,45 @@ data:
         }
       ]
     }
-  tempo-traces.json: |
+  tempo-traces.json: |-
     {
       "uid": "tempo-traces",
       "title": "Kubernetes / Traces (Tempo)",
-      "tags": ["kubernetes", "traces", "provisioned"],
+      "tags": [
+        "kubernetes",
+        "traces",
+        "provisioned"
+      ],
       "timezone": "browser",
       "schemaVersion": 39,
       "version": 1,
       "refresh": "30s",
-      "time": { "from": "now-1h", "to": "now" },
+      "time": {
+        "from": "now-24h",
+        "to": "now"
+      },
       "panels": [
         {
           "id": 1,
           "type": "timeseries",
           "title": "Request rate by service (from Tempo span metrics)",
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
               "unit": "reqps",
-              "custom": { "drawStyle": "line", "fillOpacity": 15 }
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 15
+              }
             },
             "overrides": []
           },
@@ -437,13 +455,27 @@ data:
           "id": 2,
           "type": "timeseries",
           "title": "Error rate by service",
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
               "unit": "reqps",
-              "color": { "mode": "fixed", "fixedColor": "red" },
-              "custom": { "drawStyle": "line", "fillOpacity": 15 }
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "red"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 15
+              }
             },
             "overrides": []
           },
@@ -459,12 +491,23 @@ data:
           "id": 3,
           "type": "timeseries",
           "title": "p95 span latency by service",
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
               "unit": "ms",
-              "custom": { "drawStyle": "line", "fillOpacity": 15 }
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 15
+              }
             },
             "overrides": []
           },
@@ -479,9 +522,17 @@ data:
         {
           "id": 4,
           "type": "table",
-          "title": "Recent traces (TraceQL: {}) — click a trace ID to open it",
-          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 8 },
-          "datasource": { "type": "tempo", "uid": "tempo" },
+          "title": "Recent traces (TraceQL: {}) \u2014 click a trace ID to open it",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 8
+          },
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
           "targets": [
             {
               "refId": "A",

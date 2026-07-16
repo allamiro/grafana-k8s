@@ -1,0 +1,44 @@
+# OPTIONAL demo workload: emits a steady trickle of OTLP traces (~2 spans/s,
+# service name "demo-app") into Alloy so the Tempo dashboard and service
+# graph always have data in a dev environment.
+#
+#   deploy : kubectl apply -f examples/trace-generator-demo.yaml
+#   stop   : kubectl -n grafana-dev delete deploy trace-demo
+#
+# Not part of the main stack on purpose -- don't run it in production.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trace-demo
+  namespace: grafana-dev
+  labels:
+    app: trace-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trace-demo
+  template:
+    metadata:
+      labels:
+        app: trace-demo
+    spec:
+      containers:
+        - name: telemetrygen
+          image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - traces
+            - --otlp-endpoint=alloy.grafana-dev.svc.cluster.local:4317
+            - --otlp-insecure
+            - --rate=2
+            - --duration=87600h   # effectively "run forever"
+            - --service=demo-app
+            - --child-spans=3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

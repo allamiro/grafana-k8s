@@ -24,11 +24,46 @@ Alloy ──remote_write──►  Mimir (monolithic)  ──blocks──►  Ru
 Grafana ────PromQL──────────┘
 ```
 
+## Configuring the S3 credentials
+
+RustFS (server), Mimir (client), and the bucket Job all read the same
+`rustfs-credentials` Secret — one place to configure, three consumers.
+Two ways to set it:
+
+**Option A — generated (recommended):** one command creates strong random
+keys and applies the Secret:
+
+```bash
+./grafana-dev-mimir/generate-rustfs-credentials.sh
+```
+
+**Option B — choose your own:** run the kubectl command directly:
+
+```bash
+kubectl -n grafana-dev create secret generic rustfs-credentials \
+  --from-literal=access-key="my-access-key" \
+  --from-literal=secret-key="$(openssl rand -base64 24)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+(The checked-in [rustfs-secret.yaml](rustfs-secret.yaml) carries obvious dev
+placeholders so `kubectl apply -f grafana-dev-mimir/` works out of the box —
+override it with one of the options above for anything beyond a throwaway
+dev cluster.)
+
+**Rotating keys later:** re-run either option, then restart both consumers
+so they pick up the new values:
+
+```bash
+kubectl -n grafana-dev rollout restart deploy/rustfs deploy/mimir
+```
+
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| [rustfs-secret.yaml](rustfs-secret.yaml) | S3 access/secret keys shared by RustFS and Mimir. **Change before production.** |
+| [rustfs-secret.yaml](rustfs-secret.yaml) | S3 access/secret keys shared by RustFS and Mimir (dev placeholders — see "Configuring the S3 credentials"). |
+| [generate-rustfs-credentials.sh](generate-rustfs-credentials.sh) | One-command strong random credentials → `rustfs-credentials` Secret. |
 | [generate-rustfs-certs.sh](generate-rustfs-certs.sh) | Self-signed CA + TLS cert for RustFS → `rustfs-tls` Secret. |
 | [mimir-pvc.yaml](mimir-pvc.yaml) | Both PVCs: RustFS data (30Gi) and Mimir local WAL/cache (20Gi). |
 | [rustfs-deployment.yaml](rustfs-deployment.yaml) / [rustfs-svc.yaml](rustfs-svc.yaml) | RustFS server, S3 API on **https://…:9000**, console on 9001. |
@@ -57,8 +92,9 @@ chain in `ca.crt`.
 ```bash
 # 0. Prereq: the grafana-dev namespace exists (main stack Step 2)
 
-# 1. Credentials (edit the placeholders first for anything non-dev!)
-kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml
+# 1. Credentials -- generate strong random keys (recommended):
+./grafana-dev-mimir/generate-rustfs-credentials.sh
+#    (or, dev-only: kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml)
 
 # 2. TLS cert for RustFS -> Secret rustfs-tls
 ./grafana-dev-mimir/generate-rustfs-certs.sh
