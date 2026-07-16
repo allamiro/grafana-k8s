@@ -105,7 +105,14 @@ data:
         path: /var/tempo/generator/wal
         remote_write:
           - url: http://prometheus.grafana-dev.svc.cluster.local:9090/api/v1/write
-            # send_exemplars: true          # attach trace exemplars to metrics
+            # Attach trace exemplars to the generated span metrics, so a
+            # latency spike links straight to the trace that caused it.
+            # Upstream default is FALSE -- this must be explicit.
+            # The receiver must also accept them: Prometheus needs
+            # --enable-feature=exemplar-storage (set in prometheus-deployment.yaml),
+            # Mimir needs limits.max_global_exemplars_per_user > 0.
+            # See docs/correlation.md.
+            send_exemplars: true
             # headers:
             #   X-Scope-OrgID: anonymous    # tenant header when remote-writing to Mimir
         # remote_write_flush_deadline: 1m

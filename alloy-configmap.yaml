@@ -169,6 +169,16 @@ data:
         source_labels = ["__meta_kubernetes_pod_label_app"]
         target_label  = "app"
       }
+      // job = "<namespace>/<app>" -- the convention the official Loki/Tempo/
+      // Mimir mixins REQUIRE (they match job="<namespace>/<component>").
+      // Without this, every mixin dashboard/alert renders empty with no error.
+      // See docs/meta-monitoring.md.
+      rule {
+        source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app"]
+        separator     = "/"
+        regex         = "(.+)"
+        target_label  = "job"
+      }
     }
 
     prometheus.scrape "pods" {
@@ -180,14 +190,21 @@ data:
     prometheus.remote_write "default" {
       endpoint {
         url = "http://prometheus.grafana-dev.svc.cluster.local:9090/api/v1/write"
+        // send_exemplars defaults to TRUE in Alloy (upstream Prometheus
+        // defaults it to false) -- nothing to do here. See docs/correlation.md.
       }
-      // Dual-write to Mimir (grafana-dev-mimir/, backed by RustFS).
-      // Remove either endpoint block to write to just one store.
-      endpoint {
-        url = "http://mimir.grafana-dev.svc.cluster.local:9009/api/v1/push"
-      }
+
+      // Mimir is OPTIONAL (grafana-dev-mimir/, backed by RustFS) and is NOT
+      // deployed by the main README steps. Uncomment this endpoint AFTER
+      // deploying it -- leaving it on without Mimir makes Alloy retry a
+      // non-existent Service forever and grow its WAL.
+      // endpoint {
+      //   url = "http://mimir.grafana-dev.svc.cluster.local:9009/api/v1/push"
+      // }
+
       external_labels = {
-        // CHANGE for production, e.g. cluster = "prod-tanzu-01"
+        // CHANGE for production, e.g. cluster = "prod-tanzu-01".
+        // REQUIRED by every official mixin -- see docs/meta-monitoring.md.
         cluster = "docker-desktop",
       }
     }

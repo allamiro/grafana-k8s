@@ -33,6 +33,11 @@ spec:
             # Lets Alloy (and Tempo's metrics generator) push metrics in:
             - --web.enable-remote-write-receiver
             - --web.enable-lifecycle
+            # Store exemplars (trace IDs attached to histogram samples) so
+            # metric -> trace links work in Grafana. STILL feature-gated in
+            # Prometheus 3.x. Without it, exemplars arriving via remote_write
+            # are SILENTLY dropped -- no error, no metric. See docs/correlation.md.
+            - --enable-feature=exemplar-storage
           ports:
             - name: http
               containerPort: 9090

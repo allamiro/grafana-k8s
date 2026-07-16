@@ -17,6 +17,11 @@ spec:
       app: alloy
   template:
     metadata:
+      annotations:
+        # Scraped by Alloy -> the stack monitors itself.
+        # Required for the official mixins (docs/meta-monitoring.md).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "12345"
       labels:
         app: alloy
     spec:

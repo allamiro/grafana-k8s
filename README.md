@@ -140,6 +140,36 @@ kubectl -n grafana-dev port-forward svc/grafana 3000:3000   # then https://local
 Login `admin` / `admin` (change on first login). Dashboards → **Kubernetes**
 folder → logs + container metrics are already populated.
 
+## Changing config: what needs a restart
+
+Not all config reloads the same way — this catches people out.
+
+| Change | Takes effect |
+| --- | --- |
+| **Dashboard JSON** ([dashboards/](dashboards/) → its ConfigMap) | **Automatic.** Grafana rescans the provisioned directory (~30 s) + kubelet ConfigMap sync (~60 s). No restart. |
+| **Grafana config** ([grafana-configmap.yaml](grafana-configmap.yaml)) — `grafana.ini`, **datasources** | **Requires `rollout restart`** ⚠️ |
+| **Alloy / Loki / Tempo / Prometheus / Mimir configs** | Requires a `rollout restart` (or a reload endpoint where the component has one). |
+
+```bash
+kubectl apply -f grafana-configmap.yaml
+kubectl -n grafana-dev rollout restart deploy/grafana     # <-- do not skip
+```
+
+> ### ⚠️ Why Grafana's config needs the restart: `subPath`
+> `grafana.ini`, `datasources.yaml`, and `dashboards.yaml` are mounted with
+> **`subPath`** (they're individual files inside shared directories). Kubernetes
+> **never updates `subPath` mounts** when the ConfigMap changes — and editing a
+> ConfigMap doesn't trigger a Deployment rollout either. So `kubectl apply` +
+> `rollout status` will both report success while Grafana quietly keeps serving
+> the **old** config. Verified the hard way on a live cluster.
+>
+> The dashboards ConfigMap mounts a **whole directory** (no `subPath`), which is
+> exactly why it *does* auto-update.
+
+> **Removing a provisioned datasource doesn't delete it.** Grafana stores
+> provisioned datasources in its database; commenting one out leaves it in
+> place. Delete it in the UI or use a `deleteDatasources:` block.
+
 ## Dashboards
 
 The [dashboards/](dashboards/) directory is the **source of truth**:
@@ -159,7 +189,13 @@ kubectl create configmap grafana-dashboards -n grafana-dev \
 
 Grafana rescans every 30 s — no restart needed. Keep
 [grafana-dashboards-configmap.yaml](grafana-dashboards-configmap.yaml) in sync
-(same command, redirect to the file) so plain `kubectl apply -f .` still works.
+(same command, redirect to the file).
+
+> ⚠️ **Don't `kubectl apply -f .` in the repo root.** It applies *both* Grafana
+> Service variants ([grafana-svc-clusterip.yaml](grafana-svc-clusterip.yaml) and
+> [grafana-svc-loadbalancer.yaml](grafana-svc-loadbalancer.yaml)) — same
+> Service name, so whichever lands last silently wins. Follow the numbered
+> steps and pick one variant in Step 8.
 
 ## Collecting logs on different Kubernetes distributions
 
@@ -411,7 +447,7 @@ Generate strong random keys (recommended — it prints them once, save them):
 ```bash
 ./grafana-dev-mimir/generate-rustfs-credentials.sh
 # dev-only alternative (checked-in placeholders):
-#   kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml
+#   kubectl apply -f grafana-dev-mimir/rustfs-secret.example.yaml
 kubectl -n grafana-dev get secret rustfs-credentials      # confirm it exists
 ```
 

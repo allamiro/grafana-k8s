@@ -46,10 +46,15 @@ kubectl -n grafana-dev create secret generic rustfs-credentials \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-(The checked-in [rustfs-secret.yaml](rustfs-secret.yaml) carries obvious dev
-placeholders so `kubectl apply -f grafana-dev-mimir/` works out of the box —
-override it with one of the options above for anything beyond a throwaway
-dev cluster.)
+[rustfs-secret.example.yaml](rustfs-secret.example.yaml) carries obvious dev
+placeholders. It is deliberately named `*.example.yaml` so that
+`kubectl apply -f grafana-dev-mimir/` **does not** pick it up and silently
+overwrite credentials you just generated with Option A. Apply it explicitly if
+you want the placeholders:
+
+```bash
+kubectl apply -f grafana-dev-mimir/rustfs-secret.example.yaml   # dev only
+```
 
 **Rotating keys later:** re-run either option, then restart both consumers
 so they pick up the new values:
@@ -62,7 +67,7 @@ kubectl -n grafana-dev rollout restart deploy/rustfs deploy/mimir
 
 | File | Purpose |
 | --- | --- |
-| [rustfs-secret.yaml](rustfs-secret.yaml) | S3 access/secret keys shared by RustFS and Mimir (dev placeholders — see "Configuring the S3 credentials"). |
+| [rustfs-secret.example.yaml](rustfs-secret.example.yaml) | S3 access/secret keys shared by RustFS and Mimir (dev placeholders — see "Configuring the S3 credentials"). |
 | [generate-rustfs-credentials.sh](generate-rustfs-credentials.sh) | One-command strong random credentials → `rustfs-credentials` Secret. |
 | [generate-rustfs-certs.sh](generate-rustfs-certs.sh) | Self-signed CA + TLS cert for RustFS → `rustfs-tls` Secret. |
 | [mimir-pvc.yaml](mimir-pvc.yaml) | Both PVCs: RustFS data (30Gi) and Mimir local WAL/cache (20Gi). |
@@ -119,7 +124,7 @@ kubectl -n grafana-dev exec deploy/mimir -- \
 
 # 1. Credentials -- generate strong random keys (recommended):
 ./grafana-dev-mimir/generate-rustfs-credentials.sh
-#    (or, dev-only: kubectl apply -f grafana-dev-mimir/rustfs-secret.yaml)
+#    (or, dev-only: kubectl apply -f grafana-dev-mimir/rustfs-secret.example.yaml)
 
 # 2. TLS cert for RustFS -> Secret rustfs-tls
 ./grafana-dev-mimir/generate-rustfs-certs.sh
@@ -144,7 +149,8 @@ kubectl -n grafana-dev rollout status deploy/mimir
 
 (Or simply `kubectl apply -f grafana-dev-mimir/` after steps 1–2 — Kubernetes
 retries until the ordering resolves itself; the explicit order above just
-avoids transient errors.)
+avoids transient errors. Safe for credentials: the placeholder Secret is
+`*.example.yaml`, which a directory apply ignores.)
 
 ## Verify
 
@@ -183,7 +189,7 @@ the dashboard's datasource (or set the Mimir datasource as default).
 
 ## Production notes
 
-- **Change the credentials** in `rustfs-secret.yaml` (e.g. `openssl rand -base64 24`).
+- **Change the credentials** in `rustfs-secret.example.yaml` (e.g. `openssl rand -base64 24`).
 - **Real certs**: recreate `rustfs-tls` from your CA-signed chain (same Secret keys).
 - **Storage classes**: swap `hostpath` for your class in `mimir-pvc.yaml` (Tanzu line is pre-commented).
 - **Retention**: `compactor_blocks_retention_period` in the Mimir config (default here: 31 days).
