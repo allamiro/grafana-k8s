@@ -162,41 +162,42 @@ Grafana rescans every 30 s — no restart needed. Keep
 How every log line reaches Grafana — from cluster namespaces (either
 collection mode) and from machines outside Kubernetes:
 
-```
- KUBERNETES CLUSTER
- ┌─────────────────────────────────────────────────────────────────────────┐
- │  pods (stdout/stderr)                                                     │
- │  namespace: my-app ┐                                                      │
- │  namespace: kube-system ┐                                                 │
- │           │ kubelet writes                                               │
- │           ▼                                                               │
- │   node disk: /var/log/pods/*                                             │
- │      │                       │                                           │
- │      │ streamed like         │ hostPath mount,                          │
- │      │ kubectl logs          │ tail CRI files                           │
- │      ▼                       │                                           │
- │  kube-apiserver              │                                           │
- │      │                       │                                           │
- │      │ logs + labels         │                                           │
- │      │ (namespace, pod,      │                                           │
- │      │  container, app)      │                                           │
- │      ▼                       ▼                                           │
- │  ┌──────────────────┐   ┌──────────────────────┐    namespace:          │
- │  │ Alloy Deployment │   │ Alloy DaemonSet 1/node│    grafana-dev         │
- │  │ dev: API mode    │   │ prod: file mode       │                        │
- │  │ loki.source.     │   │ loki.source.file      │                        │
- │  │   kubernetes     │   │                       │                        │
- │  └────────┬─────────┘   └───────────┬───────────┘                        │
- │           │  push /loki/api/v1/push │                                     │
- │           └───────────┬─────────────┘                                     │
- │                       ▼                                                    │
- │                  ( Loki :3100 ) ──LogQL {namespace="my-app"}──► Grafana   │
- │                       ▲                                          :443 HTTPS│
- └───────────────────────┼───────────────────────────────────────────────────┘
-                         │ push via exposed endpoint (LB/Ingress or port-forward)
- OUTSIDE KUBERNETES      │
- (VM / bare metal)       │
-   /var/log/*.log ──► Alloy on the host (examples/alloy-external.alloy) ──┘
+```mermaid
+flowchart LR
+    subgraph cluster["Kubernetes cluster"]
+        subgraph ns1["namespace: my-app"]
+            P1["pods (stdout/stderr)"]
+        end
+        subgraph ns2["namespace: kube-system"]
+            P2["pods (stdout/stderr)"]
+        end
+        API["kube-apiserver"]
+        VLOG["node disk: /var/log/pods/*"]
+
+        P1 -->|kubelet writes| VLOG
+        P2 -->|kubelet writes| VLOG
+        VLOG -->|streamed like kubectl logs| API
+
+        subgraph obs["namespace: grafana-dev"]
+            A1["Alloy Deployment<br/>(dev: API mode<br/>loki.source.kubernetes)"]
+            A2["Alloy DaemonSet, 1/node<br/>(prod: file mode<br/>loki.source.file)"]
+            LOKI[("Loki :3100")]
+            GRAF["Grafana :443 (HTTPS)"]
+        end
+
+        API -->|"logs + labels: namespace, pod, container, app"| A1
+        VLOG -->|hostPath mount, tail CRI files| A2
+        A1 -->|push /loki/api/v1/push| LOKI
+        A2 -->|push /loki/api/v1/push| LOKI
+        LOKI -->|"LogQL: #123;namespace=#quot;my-app#quot;#125;"| GRAF
+    end
+
+    subgraph external["Outside Kubernetes (VM / bare metal)"]
+        F["/var/log/*.log, app logs"]
+        A3["Alloy on the host<br/>(examples/alloy-external.alloy)"]
+        F --> A3
+    end
+    A3 -->|"push via exposed endpoint<br/>(LB/Ingress or port-forward)"| LOKI
 ```
 
 Pick ONE of the two in-cluster paths per environment — running both ships
