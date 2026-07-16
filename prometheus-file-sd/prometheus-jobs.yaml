@@ -45,8 +45,10 @@ scrape_configs:
   - job_name: 'snmp'
     metrics_path: /snmp
     # params:
-    #   module: [if_mib]        # optional job-wide default; a __param_module
-    #                           # label on a target overrides it per device.
+    #   module: [if_mib, system]  # optional job-wide default; a __param_module
+    #                             # label on a target overrides it per device.
+    #                             # NOTE: `system` supplies sysUpTime -- if_mib
+    #                             # alone does NOT (see alerts/snmp-network.yaml).
     file_sd_configs:
       - files:
           - /etc/prometheus/targets/snmp/*.yaml

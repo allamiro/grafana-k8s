@@ -12,14 +12,18 @@
     - '192.168.1.1'
     - '192.168.1.2'
   labels:
-    __param_module: if_mib          # interface counters
+    # Comma-separated = scrape BOTH modules in one poll (verified supported by
+    # snmp_exporter 0.30.1). `system` is REQUIRED for sysUpTime: if_mib only
+    # walks 1.3.6.1.2.1.2 and .31.1.1, while sysUpTime is 1.3.6.1.2.1.1.3.
+    # Without it the SNMPDeviceRebooted alert never fires.
+    __param_module: if_mib,system   # interface counters + sysUpTime/sysName
     site: dc1
     role: access-switch
 
 - targets:
     - '192.168.9.9'
   labels:
-    __param_module: cisco_wlc       # different module, same job
+    __param_module: cisco_wlc,system  # different module, same job
     site: dc2
     role: wlc
 
