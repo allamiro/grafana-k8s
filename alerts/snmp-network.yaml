@@ -83,7 +83,19 @@ groups:
           summary: "Discards on {{ $labels.ifDescr }} ({{ $labels.instance }})"
           description: "{{ $value | printf \"%.2f\" }} discards/s -- likely congestion."
 
-      # sysUpTime is in hundredths of a second. A DROP means the device rebooted.
+      # ⚠️ sysUpTime is NOT in the if_mib module -- VERIFIED against the shipped
+      #    snmp.yml 0.30.1: if_mib spans lines 22484-23734 (ifOperStatus 22938,
+      #    ifHighSpeed 23632) while sysUpTime is at 57522, inside the `system`
+      #    module. if_mib only walks 1.3.6.1.2.1.2 and 1.3.6.1.2.1.31.1.1;
+      #    sysUpTime is 1.3.6.1.2.1.1.3.
+      #
+      #    So this rule NEVER FIRES with a plain if_mib scrape. Scrape both
+      #    modules -- in the target file:
+      #        labels:
+      #          __param_module: if_mib,system
+      #    (snmp_exporter accepts a comma-separated module list.)
+      #
+      # sysUpTime is TimeTicks = HUNDREDTHS of a second, hence the /100.
       - alert: SNMPDeviceRebooted
         expr: sysUpTime / 100 < 300
         for: 0m

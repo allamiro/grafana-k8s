@@ -44,6 +44,8 @@ groups:
         expr: |
           node_filesystem_avail_bytes{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"}
             / node_filesystem_size_bytes{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"} * 100 < 10
+          and
+          node_filesystem_readonly{fstype!~"tmpfs|squashfs|overlay|fuse.*|iso9660"} == 0
         for: 10m
         labels:
           severity: warning

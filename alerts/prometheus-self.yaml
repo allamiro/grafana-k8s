@@ -101,9 +101,16 @@ groups:
           summary: "Prometheus has no Alertmanager"
           description: "Nothing will be notified, no matter what fires."
 
+      # ⚠️ The widely-copied form of this rule is SILENTLY BROKEN:
+      #     prometheus_notifications_queue_length / prometheus_notifications_queue_capacity
+      #   returns an EMPTY vector -- verified on Prometheus 3.13.1. queue_length is
+      #   labelled per `alertmanager` while queue_capacity is unlabelled, so the
+      #   division finds no matching series. It looks healthy and never fires.
+      #   The sum by (instance, job) + on(...) group_left form below fixes the match.
       - alert: PrometheusNotificationQueueFilling
         expr: |
-          prometheus_notifications_queue_length / prometheus_notifications_queue_capacity * 100 > 80
+          sum by (instance, job) (prometheus_notifications_queue_length)
+            / on (instance, job) group_left prometheus_notifications_queue_capacity * 100 > 80
         for: 10m
         labels:
           severity: warning

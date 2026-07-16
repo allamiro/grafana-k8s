@@ -66,6 +66,14 @@ groups:
           summary: "TLS cert for {{ $labels.instance }} expires in <7d"
           description: "Expires in {{ $value | humanizeDuration }}."
 
+      # ⚠️ This usually CANNOT fire, and that's expected. Once a cert actually
+      #    expires the TLS handshake fails, so blackbox exposes no
+      #    probe_ssl_earliest_cert_expiry at all -- the series disappears rather
+      #    than going negative. ProbeFailed is what catches a genuinely expired
+      #    cert. This rule only fires if the module sets
+      #    `tls_config: { insecure_skip_verify: true }` (which keeps probing and
+      #    still reports the expiry). Keep it as a backstop; rely on the 30d/7d
+      #    warnings above to never get here.
       - alert: SSLCertExpired
         expr: probe_ssl_earliest_cert_expiry - time() <= 0
         for: 5m

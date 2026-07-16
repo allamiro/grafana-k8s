@@ -47,13 +47,35 @@ prometheus_rule_evaluation_failures_total == 0
 
 ### Corrections this caught
 
-- **`windows_cs_physical_memory_bytes`** → **`windows_memory_physical_total_bytes`**
-- **`windows_os_physical_memory_free_bytes`** → **`windows_memory_available_bytes`**
-- **`windows_system_system_up_time`** → **`windows_system_boot_time_timestamp`**
+**Wrong metric names** — all over blogs and Stack Overflow, all from old
+windows_exporter versions, none of which exist in 0.31.x. An alert using them
+never fires and never errors:
 
-The three left-hand names are all over blogs and Stack Overflow. They're from
-old windows_exporter versions and **do not exist in 0.31.x** — an alert using
-them never fires and never errors.
+| Commonly published | Correct at 0.31.7 |
+| --- | --- |
+| `windows_cs_physical_memory_bytes` | `windows_memory_physical_total_bytes` |
+| `windows_os_physical_memory_free_bytes` | `windows_memory_available_bytes` |
+| `windows_system_system_up_time` | `windows_system_boot_time_timestamp` |
+
+**Silently-broken PromQL** — three bugs caught in *these* files before shipping:
+
+1. **`prometheus_notifications_queue_length / prometheus_notifications_queue_capacity`**
+   returns an **empty vector** — `queue_length` is labelled per `alertmanager`,
+   `queue_capacity` is not, so the division matches nothing. Verified empty on
+   Prometheus 3.13.1. This is the canonical published form of the rule and it
+   does not work. Fixed with `sum by (instance, job) (...) / on (...) group_left`.
+
+2. **`sysUpTime` is not in the `if_mib` module.** Verified by line number in the
+   shipped `snmp.yml` 0.30.1: `if_mib` spans 22484–23734 (`ifOperStatus` 22938),
+   while `sysUpTime` sits at 57522 inside `system`. `SNMPDeviceRebooted` needs
+   `__param_module: if_mib,system` or it never fires.
+
+3. **`probe_ssl_earliest_cert_expiry` disappears when a cert actually expires**
+   (the handshake fails, so nothing is exported) — `SSLCertExpired` can only fire
+   with `insecure_skip_verify: true`. `ProbeFailed` is what really catches it.
+
+If a published alert "looks right", check that its vectors actually match. An
+empty result is indistinguishable from healthy.
 
 ## Install
 
@@ -101,10 +123,15 @@ mimirtool rules load alerts/*.yaml --address=http://mimir:9009 --id=anonymous
 
 ```bash
 curl -s .../api/v1/rules | jq '[.data.groups[].rules[]] | length'
+curl -s .../api/v1/rules | jq '[.data.groups[].rules[] | select(.health != "ok")]'
 curl -s '.../api/v1/query?query=sum(prometheus_rule_evaluation_failures_total)'   # want 0
 ```
 
 Prometheus UI → **Alerts** lists every rule and its state.
+
+> **Right after a restart, rules report `health: "unknown"`**, not `ok` — they
+> simply haven't been evaluated yet. Wait one group interval (default 1m) before
+> concluding anything is broken.
 
 ## Before you trust these
 
